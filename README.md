@@ -178,7 +178,14 @@ were fixed in the performance pass.
 - **Blur** excludes the person from the blur kernel (normalised convolution),
   so there is no coloured halo around the outline.
 - **Remove** sends RGBA only through Unity Capture; other drivers and apps
-  get the fallback colour.
+  get the fallback colour. In RGBA frames the transparent pixels also carry
+  the fallback colour, so an app that ignores alpha never shows the real
+  room; pixels with coverage keep the untouched camera colour, so OBS gets
+  no colour fringe.
+- **Tested output path**: Unity Capture at 1920x1080 (BGR and RGBA), read
+  back through a DirectShow graph: same resolution and sharpness as the
+  composited frame, not mirrored. OpenCV's own DirectShow reader cannot open
+  the Unity Capture filter, which is a limitation of that reader only.
 - **Auto-framing** crops from the full-resolution frame with a critically
   damped spring. Zooming in on a 1080p camera with a 1080p output must
   upscale; the app warns above the preview. *Never upscale* caps the zoom so
