@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-log = logging.getLogger("vcam.devices")
+log = logging.getLogger("clearframe.devices")
 logging.getLogger("comtypes").setLevel(logging.WARNING)
 
 # Substrings (lower-case) that mark a device as a virtual camera.

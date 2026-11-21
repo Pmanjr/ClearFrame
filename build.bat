@@ -1,5 +1,5 @@
 @echo off
-rem Build dist\vcam-clone\vcam-clone.exe with PyInstaller and bundle the models.
+rem Build dist\ClearFrame\ClearFrame.exe with PyInstaller and bundle the models.
 setlocal
 cd /d "%~dp0"
 
@@ -10,15 +10,15 @@ if not exist ".venv\Scripts\python.exe" (
     .venv\Scripts\python.exe -m pip install -r requirements.txt || goto :fail
 )
 .venv\Scripts\python.exe scripts\download_models.py || goto :fail
-.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean vcam-clone.spec || goto :fail
+.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean clearframe.spec || goto :fail
 
 echo [build] Copying models...
-if not exist "dist\vcam-clone\models" mkdir "dist\vcam-clone\models"
-copy /y models\*.onnx "dist\vcam-clone\models\" >nul
-copy /y models\*.tflite "dist\vcam-clone\models\" >nul
+if not exist "dist\ClearFrame\models" mkdir "dist\ClearFrame\models"
+copy /y models\*.onnx "dist\ClearFrame\models\" >nul
+copy /y models\*.tflite "dist\ClearFrame\models\" >nul
 
 echo.
-echo [build] Done: dist\vcam-clone\vcam-clone.exe
+echo [build] Done: dist\ClearFrame\ClearFrame.exe
 exit /b 0
 
 :fail

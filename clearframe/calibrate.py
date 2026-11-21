@@ -11,7 +11,7 @@ import numpy as np
 from .segmentation import MediaPipeSegmenter, ModelMissing, RVMSegmenter, available_providers
 from .settings import SegmentationSettings
 
-log = logging.getLogger("vcam.calibrate")
+log = logging.getLogger("clearframe.calibrate")
 
 
 @dataclass

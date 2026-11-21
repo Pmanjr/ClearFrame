@@ -350,7 +350,7 @@ class SettingsTab(QWidget):
         f.file("Folder", s, "library_dir", "Choose library folder", folder=True, after=win.library_changed)
         f.text("Pexels API key", s, "pexels_api_key", "optional", password=True)
         f.text("Unsplash access key", s, "unsplash_api_key", "optional", password=True)
-        f.hint("Keys are stored only in %APPDATA%\\vcam-clone\\settings.json.")
+        f.hint("Keys are stored only in %APPDATA%\\ClearFrame\\settings.json.")
 
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)

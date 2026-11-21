@@ -40,7 +40,7 @@ def download(name: str, url: str, min_size: int, force: bool) -> bool:
     tmp = dest.with_suffix(dest.suffix + ".part")
     print(f"  fetching {name} ...", end="", flush=True)
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "vcam-clone-model-downloader"})
+        req = urllib.request.Request(url, headers={"User-Agent": "clearframe-model-downloader"})
         with urllib.request.urlopen(req, timeout=60) as r, open(tmp, "wb") as f:
             while chunk := r.read(1 << 20):
                 f.write(chunk)

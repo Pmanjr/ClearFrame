@@ -1,4 +1,4 @@
-"""Extras VCam does not have: .cube LUT and presenter mode (Enhance tab)."""
+"""Extras: .cube LUT and presenter mode (Enhance tab)."""
 from __future__ import annotations
 
 from ..presenter import list_monitors

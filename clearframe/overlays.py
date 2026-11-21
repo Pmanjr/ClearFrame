@@ -10,7 +10,7 @@ from .compositor import overlay_bgra
 from .media import MediaSource, open_media
 from .settings import NameTagSettings, OverlaySettings, parse_color
 
-log = logging.getLogger("vcam.overlays")
+log = logging.getLogger("clearframe.overlays")
 
 
 def anchor_pos(anchor: str, W: int, H: int, w: int, h: int, ox: float, oy: float) -> tuple[int, int]:

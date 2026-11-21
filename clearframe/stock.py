@@ -11,7 +11,7 @@ from pathlib import Path
 import requests
 
 TIMEOUT = 15
-UA = {"User-Agent": "vcam-clone"}
+UA = {"User-Agent": "clearframe"}
 
 
 @dataclass

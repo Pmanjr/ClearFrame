@@ -16,7 +16,7 @@ import numpy as np
 
 from .settings import SegmentationSettings, models_dir
 
-log = logging.getLogger("vcam.seg")
+log = logging.getLogger("clearframe.seg")
 
 RVM_MODELS = {"fp32": "rvm_mobilenetv3_fp32.onnx", "fp16": "rvm_mobilenetv3_fp16.onnx"}
 MP_SELFIE = "selfie_segmenter_landscape.tflite"

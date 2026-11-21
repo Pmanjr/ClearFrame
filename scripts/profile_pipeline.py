@@ -14,12 +14,12 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vcam import compositor as comp  # noqa: E402
-from vcam.calibrate import _test_frame  # noqa: E402
-from vcam.engine import Engine  # noqa: E402
-from vcam.lighting import LightingEnhancer  # noqa: E402
-from vcam.segmentation import MediaPipeSegmenter, RVMSegmenter  # noqa: E402
-from vcam.settings import Settings  # noqa: E402
+from clearframe import compositor as comp  # noqa: E402
+from clearframe.calibrate import _test_frame  # noqa: E402
+from clearframe.engine import Engine  # noqa: E402
+from clearframe.lighting import LightingEnhancer  # noqa: E402
+from clearframe.segmentation import MediaPipeSegmenter, RVMSegmenter  # noqa: E402
+from clearframe.settings import Settings  # noqa: E402
 
 
 def bench(name: str, fn, n: int) -> float:

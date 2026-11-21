@@ -10,7 +10,7 @@ import numpy as np
 
 from .settings import AutoFrameSettings, models_dir
 
-log = logging.getLogger("vcam.autoframe")
+log = logging.getLogger("clearframe.autoframe")
 
 FACE_MODEL = "blaze_face_short_range.tflite"
 

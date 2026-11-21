@@ -1,12 +1,12 @@
 @echo off
 rem One-click launcher.
-rem  - Runs the PyInstaller build if it exists (dist\vcam-clone\vcam-clone.exe).
+rem  - Runs the PyInstaller build if it exists (dist\ClearFrame\ClearFrame.exe).
 rem  - Otherwise sets up the venv + models on first use and runs from source.
 setlocal
 cd /d "%~dp0"
 
-if exist "dist\vcam-clone\vcam-clone.exe" (
-    start "" "dist\vcam-clone\vcam-clone.exe" %*
+if exist "dist\ClearFrame\ClearFrame.exe" (
+    start "" "dist\ClearFrame\ClearFrame.exe" %*
     exit /b 0
 )
 
@@ -20,7 +20,7 @@ if not exist "models\rvm_mobilenetv3_fp32.onnx" (
     echo [run] Downloading models...
     .venv\Scripts\python.exe scripts\download_models.py || goto :fail
 )
-start "" ".venv\Scripts\pythonw.exe" -m vcam %*
+start "" ".venv\Scripts\pythonw.exe" -m clearframe %*
 exit /b 0
 
 :fail

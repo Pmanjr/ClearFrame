@@ -1,11 +1,11 @@
 """Command-line front end (Phase 1): run the pipeline headless with flags.
 
 Examples:
-  python -m vcam --list-cameras
-  python -m vcam cli --mode blur --blur 60
-  python -m vcam cli --mode replace --bg C:\\pics\\office.jpg --preview
-  python -m vcam cli --mode remove --rgba            (Unity Capture, true alpha)
-  python -m vcam cli --benchmark
+  python -m clearframe --list-cameras
+  python -m clearframe cli --mode blur --blur 60
+  python -m clearframe cli --mode replace --bg C:\\pics\\office.jpg --preview
+  python -m clearframe cli --mode remove --rgba            (Unity Capture, true alpha)
+  python -m clearframe cli --benchmark
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from .settings import BG_MODES, FPS_CHOICES, RESOLUTIONS, Settings
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="vcam cli", description="vcam-clone command-line pipeline")
+    p = argparse.ArgumentParser(prog="clearframe cli", description="ClearFrame command-line pipeline")
     g = p.add_argument_group("camera")
     g.add_argument("--list-cameras", action="store_true", help="list physical cameras and exit")
     g.add_argument("--camera", type=int, default=None, help="DirectShow camera index (default: first physical)")
@@ -57,7 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--out-fps", type=int, default=30, choices=list(FPS_CHOICES))
     g.add_argument("--backend", default="auto", choices=["auto", "obs", "unitycapture"])
     g.add_argument("--rgba", action="store_true", help="send RGBA through Unity Capture (true transparency)")
-    g.add_argument("--no-vcam", action="store_true", help="do not open a virtual camera")
+    g.add_argument("--no-output", action="store_true", help="do not open a virtual camera")
     g.add_argument("--preview", action="store_true", help="show a preview window (q / Esc quits)")
     g.add_argument("--snapshot", default=None, help="save a PNG of the composited frame on exit")
     g.add_argument("--seconds", type=float, default=0, help="stop after N seconds (0 = run until Ctrl+C)")
@@ -96,7 +96,7 @@ def settings_from_args(a: argparse.Namespace) -> Settings:
     g.mode, g.provider, g.dml_device = a.seg, a.provider, a.dml_device
     g.rvm_precision, g.rvm_refiner, g.downsample_ratio, g.ema = a.precision, a.refiner, a.downsample, a.ema
     o = s.output
-    o.resolution, o.fps, o.backend, o.rgba, o.enabled = a.out_res, a.out_fps, a.backend, a.rgba, not a.no_vcam
+    o.resolution, o.fps, o.backend, o.rgba, o.enabled = a.out_res, a.out_fps, a.backend, a.rgba, not a.no_output
     from .settings import OverlaySettings
     s.overlays = [OverlaySettings(path=p, anchor=a.overlay_anchor) for p in a.overlay]
     if a.name or a.title:
@@ -113,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
     a = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%H:%M:%S")
-    log = logging.getLogger("vcam.cli")
+    log = logging.getLogger("clearframe.cli")
 
     if a.list_cameras:
         from .devices import list_cameras
@@ -142,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
                 bgr, _, _, n = eng.latest()
                 if bgr is not None and n != shown:
                     shown = n
-                    cv2.imshow("vcam-clone preview (q to quit)", bgr)
+                    cv2.imshow("ClearFrame preview (q to quit)", bgr)
                 if cv2.waitKey(5) & 0xFF in (ord("q"), 27):
                     break
             else:

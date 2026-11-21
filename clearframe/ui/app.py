@@ -10,7 +10,7 @@ import sys
 from ..settings import Settings, app_dir
 
 
-INSTANCE_KEY = "vcam-clone-single-instance"
+INSTANCE_KEY = "clearframe-single-instance"
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -21,14 +21,14 @@ def _setup_logging(verbose: bool) -> None:
         sh = logging.StreamHandler()
         sh.setFormatter(fmt)
         root.addHandler(sh)
-    fh = logging.handlers.RotatingFileHandler(app_dir() / "vcam.log", maxBytes=1_000_000, backupCount=1,
+    fh = logging.handlers.RotatingFileHandler(app_dir() / "clearframe.log", maxBytes=1_000_000, backupCount=1,
                                               encoding="utf-8")
     fh.setFormatter(fmt)
     root.addHandler(fh)
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="vcam")
+    ap = argparse.ArgumentParser(prog="clearframe")
     ap.add_argument("--minimized", action="store_true", help="start hidden in the tray")
     ap.add_argument("--input", default=None, help="image/video file instead of a camera (testing)")
     ap.add_argument("--screenshot", default=None, help=argparse.SUPPRESS)   # dev: save a UI grab and exit
@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
     from .widgets import STYLE, app_icon
 
     app = QApplication(sys.argv[:1])
-    app.setApplicationName("vcam-clone")
+    app.setApplicationName("ClearFrame")
     app.setQuitOnLastWindowClosed(False)
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
@@ -59,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
         sock.write(b"show")
         sock.waitForBytesWritten(400)
         sock.disconnectFromServer()
-        logging.getLogger("vcam.ui").info("Already running; activated the existing window.")
+        logging.getLogger("clearframe.ui").info("Already running; activated the existing window.")
         return 0
     QLocalServer.removeServer(INSTANCE_KEY)          # stale name from a crashed run
     server = QLocalServer()
@@ -92,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
         QTimer.singleShot(6000, grab)
 
     code = app.exec()
-    ulog = logging.getLogger("vcam.ui")
+    ulog = logging.getLogger("clearframe.ui")
     ulog.info("Event loop ended; stopping engine.")
     server.close()
     engine.stop()                 # releases the webcam and the virtual camera

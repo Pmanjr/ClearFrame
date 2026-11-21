@@ -187,7 +187,7 @@ class EnhanceTab(QWidget):
         v.addWidget(f.scrolled())
 
     def _extras(self, f: Form, win) -> None:
-        """Extras VCam does not have (.cube LUT, presenter mode)."""
+        """Extras: .cube LUT and presenter mode."""
         try:
             from .panels_bonus import add_bonus_rows
         except ImportError:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-log = logging.getLogger("vcam.hotkeys")
+log = logging.getLogger("clearframe.hotkeys")
 
 ACTIONS = [
     ("toggle_blur", "Toggle blur"),

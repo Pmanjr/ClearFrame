@@ -1,4 +1,4 @@
-"""Settings model, persisted as JSON in %APPDATA%\\vcam-clone\\settings.json."""
+"""Settings model, persisted as JSON in %APPDATA%\\ClearFrame\\settings.json."""
 from __future__ import annotations
 
 import dataclasses
@@ -10,9 +10,9 @@ import typing
 from dataclasses import dataclass, field
 from pathlib import Path
 
-log = logging.getLogger("vcam.settings")
+log = logging.getLogger("clearframe.settings")
 
-APP_NAME = "vcam-clone"
+APP_NAME = "ClearFrame"
 
 RESOLUTIONS = {"1080p": (1920, 1080), "720p": (1280, 720), "480p": (854, 480), "360p": (640, 360)}
 FPS_CHOICES = (15, 30, 60)

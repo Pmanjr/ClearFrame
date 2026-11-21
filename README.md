@@ -1,4 +1,4 @@
-# vcam-clone
+# ClearFrame
 
 Webcam background blur / removal / replacement for Windows that shows up as a
 virtual camera in Zoom, Meet, Teams, Discord and OBS. No watermark, and the
@@ -28,7 +28,7 @@ Requires Windows 10/11 and **Python 3.12** (3.11 also works).
 
 Double-click **`run.bat`**. On first use it creates `.venv`, installs the
 pinned requirements, downloads the models and starts the app. If a PyInstaller
-build exists (`dist\vcam-clone\vcam-clone.exe`) it starts that instead.
+build exists (`dist\ClearFrame\ClearFrame.exe`) it starts that instead.
 
 Manual setup:
 
@@ -36,7 +36,7 @@ Manual setup:
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe scripts\download_models.py
-.\.venv\Scripts\python.exe -m vcam
+.\.venv\Scripts\python.exe -m clearframe
 ```
 
 ### Models
@@ -80,7 +80,7 @@ FPS.
 
 Under the preview: **Pause camera** (freeze frame), **Pause loop** (replays
 the last few seconds forwards then backwards so there is no seam),
-**Snapshot** (PNG in `Pictures\vcam-clone`) and **Mirror preview** (preview
+**Snapshot** (PNG in `Pictures\ClearFrame`) and **Mirror preview** (preview
 only; the output is never mirrored).
 
 **Closing the window (X) quits the app** and releases the webcam and the
@@ -93,12 +93,12 @@ copy runs at a time: starting it again brings the running window forward.
 ### Background library
 
 Drop files into the library (drag onto the grid, *Add files*, or copy them
-into the folder; default `%APPDATA%\vcam-clone\backgrounds`). Supported: JPG,
+into the folder; default `%APPDATA%\ClearFrame\backgrounds`). Supported: JPG,
 PNG, WEBP, static and animated GIF, MP4 / WEBM / MOV (looped at the file's own
 frame rate, muted).
 
 *Search online* queries Pexels or Unsplash if you paste an API key in the
-Settings tab. Keys are stored only in `%APPDATA%\vcam-clone\settings.json`,
+Settings tab. Keys are stored only in `%APPDATA%\ClearFrame\settings.json`,
 never in the repository.
 
 ### Default hotkeys (global, editable in Settings)
@@ -122,16 +122,16 @@ under the preview.
 ## Command line
 
 ```powershell
-.\.venv\Scripts\python.exe -m vcam --list-cameras
-.\.venv\Scripts\python.exe -m vcam --benchmark
-.\.venv\Scripts\python.exe -m vcam cli --mode blur --blur 60 --preview
-.\.venv\Scripts\python.exe -m vcam cli --mode replace --bg C:\pics\office.jpg
-.\.venv\Scripts\python.exe -m vcam cli --mode remove --rgba
-.\.venv\Scripts\python.exe -m vcam cli --mode blur --autoframe 1.5 --enhance 0.6 --name "Ada" --title "Engineer"
-.\.venv\Scripts\python.exe -m vcam cli --help
+.\.venv\Scripts\python.exe -m clearframe --list-cameras
+.\.venv\Scripts\python.exe -m clearframe --benchmark
+.\.venv\Scripts\python.exe -m clearframe cli --mode blur --blur 60 --preview
+.\.venv\Scripts\python.exe -m clearframe cli --mode replace --bg C:\pics\office.jpg
+.\.venv\Scripts\python.exe -m clearframe cli --mode remove --rgba
+.\.venv\Scripts\python.exe -m clearframe cli --mode blur --autoframe 1.5 --enhance 0.6 --name "Ada" --title "Engineer"
+.\.venv\Scripts\python.exe -m clearframe cli --help
 ```
 
-`--no-vcam` runs without a virtual camera, `--snapshot out.png --seconds 5`
+`--no-output` runs without a virtual camera, `--snapshot out.png --seconds 5`
 saves a frame and exits, `--input file.png|mp4` uses a file instead of a
 camera (handy for testing).
 
@@ -141,9 +141,9 @@ camera (handy for testing).
 .\build.bat
 ```
 
-Produces `dist\vcam-clone\vcam-clone.exe` (PyInstaller one-folder build, models
+Produces `dist\ClearFrame\ClearFrame.exe` (PyInstaller one-folder build, models
 copied next to the exe). `run.bat` then launches that build. The exe is a
-windowed app; use `python -m vcam cli` for the command line.
+windowed app; use `python -m clearframe cli` for the command line.
 
 ## Performance
 
@@ -228,15 +228,15 @@ were fixed in the performance pass.
   dialog* button opens the camera's own property page with exact ranges.
 - **Virtual cameras are excluded** from the source list by name (OBS, Unity
   Capture, XSplit VCam, Snap Camera, NDI, DroidCam and similar).
-- **Settings** live in `%APPDATA%\vcam-clone\settings.json`, the log in
-  `%APPDATA%\vcam-clone\vcam.log`.
+- **Settings** live in `%APPDATA%\ClearFrame\settings.json`, the log in
+  `%APPDATA%\ClearFrame\clearframe.log`.
 - **Extras**: `.cube` 3D LUTs (Enhance tab) and presenter mode (live screen
   capture behind the matted person).
 
 ## Project layout
 
 ```
-vcam/
+clearframe/
   capture.py       threaded capture, MJPG 1080p negotiation + warnings
   devices.py       camera enumeration, virtual camera filter
   segmentation.py  RVM / MediaPipe, EMA, guided-filter alpha upsample

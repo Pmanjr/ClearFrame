@@ -15,7 +15,7 @@ from ..settings import Settings
 from .panels import MODE_LABELS, BackgroundTab, CalibrationDialog, CameraTab, OutputTab, SettingsTab
 from .widgets import PreviewWidget, app_icon
 
-log = logging.getLogger("vcam.ui")
+log = logging.getLogger("clearframe.ui")
 
 
 class MainWindow(QMainWindow):
@@ -27,7 +27,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.settings = settings
         self.engine = engine
-        self.setWindowTitle("vcam-clone")
+        self.setWindowTitle("ClearFrame")
         self.setWindowIcon(app_icon())
         self.resize(1420, 780)
         self._quitting = False
@@ -131,7 +131,7 @@ class MainWindow(QMainWindow):
     # --------------------------------------------------------------- tray
     def _build_tray(self) -> None:
         self.tray = QSystemTrayIcon(app_icon(), self)
-        self.tray.setToolTip("vcam-clone")
+        self.tray.setToolTip("ClearFrame")
         menu = QMenu()
         self.act_show = QAction("Show window", self)
         self.act_show.triggered.connect(self.show_window)
@@ -189,7 +189,7 @@ class MainWindow(QMainWindow):
         self._hidden_since = time.time()
         if not self._tray_tip_shown:
             self._tray_tip_shown = True
-            self.tray.showMessage("vcam-clone is still running",
+            self.tray.showMessage("ClearFrame is still running",
                                   "The virtual camera keeps working. Right-click the tray icon to quit.",
                                   QSystemTrayIcon.Information, 4000)
 

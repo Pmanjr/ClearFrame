@@ -36,7 +36,7 @@ from .segmentation import ModelMissing, Segmenter, create_segmenter
 from .settings import Settings, parse_color, pictures_dir
 from .splash import Splash
 
-log = logging.getLogger("vcam.engine")
+log = logging.getLogger("clearframe.engine")
 
 
 @dataclass
@@ -180,7 +180,7 @@ class Engine:
         if bgr is None:
             return None
         if path is None:
-            path = pictures_dir() / time.strftime("vcam-%Y%m%d-%H%M%S.png")
+            path = pictures_dir() / time.strftime("clearframe-%Y%m%d-%H%M%S.png")
         path = Path(path)
         img = bgr
         if alpha is not None and fg is not None and self.settings.background.mode == "remove" \
@@ -286,7 +286,7 @@ class Engine:
             self.out = None
         o = self.settings.output
         self.stats.output = ""
-        self._warned.discard("vcam")
+        self._warned.discard("driver")
         self.stats.warnings = [w for w in self.stats.warnings if not w.startswith("No virtual camera")]
         if not o.enabled:
             return
@@ -295,7 +295,7 @@ class Engine:
             self.out = VirtualCamOutput(W, H, o.fps, o.backend, o.rgba)
             self.stats.output = f"{self.out.device} {W}x{H}@{o.fps}" + (" RGBA" if self.out.rgba else "")
         except VirtualCamError as e:
-            self._warn_once("vcam", str(e))
+            self._warn_once("driver", str(e))
             self.stats.output = "no virtual camera driver"
 
     def _sync_background_source(self) -> None:
@@ -596,7 +596,7 @@ class Engine:
                             self._warned.discard("process")
                 if self.out is not None:
                     self.out.send(bgr, rgba)
-                    self._timer.lap("vcam send")
+                    self._timer.lap("output send")
                 self._publish(bgr, alpha, fg)
 
                 st = self.stats

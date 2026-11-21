@@ -9,7 +9,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-log = logging.getLogger("vcam.media")
+log = logging.getLogger("clearframe.media")
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 ANIM_EXT = {".gif"}

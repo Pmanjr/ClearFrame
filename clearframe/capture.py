@@ -14,7 +14,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-log = logging.getLogger("vcam.capture")
+log = logging.getLogger("clearframe.capture")
 
 BACKENDS = {"dshow": cv2.CAP_DSHOW, "msmf": cv2.CAP_MSMF}
 

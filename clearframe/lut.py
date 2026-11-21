@@ -116,7 +116,7 @@ def write_identity_cube(path: str | Path, size: int = 17, tint=(1.0, 1.0, 1.0), 
     """Small helper for tests / a starting point: identity (or tinted) cube."""
     g = np.linspace(0, 1, size, dtype=np.float32)
     with open(path, "w", encoding="utf-8") as f:
-        f.write(f"TITLE \"vcam-clone\"\nLUT_3D_SIZE {size}\n")
+        f.write(f"TITLE \"ClearFrame\"\nLUT_3D_SIZE {size}\n")
         for b in g:
             for gr in g:
                 for r in g:

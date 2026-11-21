@@ -9,7 +9,7 @@ import time
 import cv2
 import numpy as np
 
-log = logging.getLogger("vcam.presenter")
+log = logging.getLogger("clearframe.presenter")
 
 
 def list_monitors() -> list[tuple[int, str]]:

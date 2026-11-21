@@ -10,7 +10,7 @@ import logging
 import cv2
 import numpy as np
 
-log = logging.getLogger("vcam.output")
+log = logging.getLogger("clearframe.output")
 
 INSTALL_HINT = (
     "No virtual camera driver found. Install OBS Studio (ships 'OBS Virtual Camera') "
