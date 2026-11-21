@@ -320,8 +320,11 @@ class Engine:
             self.seg = None
         self.stats.status = "calibrating"
         target = max(15, self.settings.output.fps)
+        overhead = 6.0 + (6.0 if self.settings.camera.denoise > 0 else 0.0) \
+            + (5.0 if self.settings.lighting.enabled else 0.0)
         results, best = run_calibration(target, frame, progress, cancel=lambda: not self._running,
-                                        downsample_ratio=self.settings.seg.downsample_ratio)
+                                        downsample_ratio=self.settings.seg.downsample_ratio,
+                                        overhead_ms=overhead)
         if not self._running:
             return
         if best is not None:

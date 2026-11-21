@@ -38,9 +38,12 @@ def candidates() -> list[Candidate]:
         for dev in (0, 1):
             tag = f"DML gpu{dev}"
             c += [
-                Candidate(f"RVM fp32 + built-in refiner ({tag})", "quality", "dml", dev, "fp32", "rvm", 100),
-                Candidate(f"RVM fp32 + guided filter ({tag})", "quality", "dml", dev, "fp32", "guided", 90),
-                Candidate(f"RVM fp16 + guided filter ({tag})", "quality", "dml", dev, "fp16", "guided", 85),
+                # The guided filter ranks first: on real footage it keeps
+                # headphones / ear cups solid where the built-in refiner
+                # leaves them patchy, and it costs about half as much.
+                Candidate(f"RVM fp32 + guided filter ({tag})", "quality", "dml", dev, "fp32", "guided", 100),
+                Candidate(f"RVM fp16 + guided filter ({tag})", "quality", "dml", dev, "fp16", "guided", 95),
+                Candidate(f"RVM fp32 + built-in refiner ({tag})", "quality", "dml", dev, "fp32", "rvm", 90),
             ]
     c += [
         Candidate("RVM fp32 + guided filter (CPU)", "quality", "cpu", 0, "fp32", "guided", 80),
@@ -102,14 +105,15 @@ def choose(results: list[Candidate], target_fps: int, overhead_ms: float = 6.0) 
 
 
 def run_calibration(target_fps: int = 30, frame: np.ndarray | None = None,
-                    progress=None, cancel=None,
-                    downsample_ratio: float = 0.375) -> tuple[list[Candidate], Candidate | None]:
+                    progress=None, cancel=None, downsample_ratio: float = 0.375,
+                    overhead_ms: float = 6.0) -> tuple[list[Candidate], Candidate | None]:
     """progress(i, n, label) is called before each candidate. cancel() -> True
     aborts (app is quitting); nothing is selected in that case."""
     frame = _test_frame() if frame is None else frame
     cands = candidates()
     results = []
     dml_dead: set[int] = set()
+    dml_slow: set[int] = set()
     for i, c in enumerate(cands):
         if cancel and cancel():
             return results, None
@@ -117,17 +121,20 @@ def run_calibration(target_fps: int = 30, frame: np.ndarray | None = None,
             progress(i, len(cands), c.label)
         if c.provider == "dml" and c.dml_device in dml_dead:
             c.error = "adapter not available"
+        elif c.provider == "dml" and c.dml_device in dml_slow:
+            c.error = "skipped (this adapter is far too slow)"
         else:
             bench(c, frame, downsample_ratio=downsample_ratio, cancel=cancel)
-            if c.error and c.provider == "dml" and c.refiner == "rvm":
-                # first candidate of this adapter failed -> adapter likely absent
-                if "device" in c.error.lower() or "adapter" in c.error.lower() or c.dml_device > 0:
-                    dml_dead.add(c.dml_device)
+            if c.provider == "dml":
+                if c.error and c.dml_device > 0:
+                    dml_dead.add(c.dml_device)          # second adapter absent
+                elif not c.error and c.ms > 3000.0 / target_fps:
+                    dml_slow.add(c.dml_device)          # e.g. an integrated GPU: skip the rest
         log.info("  %-46s %s", c.label, c.error or f"{c.ms:6.1f} ms  ({c.fps:5.1f} FPS max)")
         results.append(c)
     if progress:
         progress(len(cands), len(cands), "done")
-    return results, choose(results, target_fps)
+    return results, choose(results, target_fps, overhead_ms)
 
 
 def apply_choice(s: SegmentationSettings, c: Candidate, target_fps: int) -> None:
