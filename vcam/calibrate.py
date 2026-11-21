@@ -88,7 +88,7 @@ def bench(c: Candidate, frame: np.ndarray, frames: int = 30, warmup: int = 8,
     return c
 
 
-def choose(results: list[Candidate], target_fps: int, overhead_ms: float = 9.0) -> Candidate | None:
+def choose(results: list[Candidate], target_fps: int, overhead_ms: float = 6.0) -> Candidate | None:
     """Best quality whose segmentation cost leaves room for compositing
     (`overhead_ms`) inside the frame budget; else the fastest that works."""
     ok = [r for r in results if not r.error]

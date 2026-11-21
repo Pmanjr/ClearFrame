@@ -35,6 +35,7 @@ class MainWindow(QMainWindow):
         self._hidden_since: float | None = None
         self._tray_tip_shown = False
         self._calib_dialog: CalibrationDialog | None = None
+        self._manual_sleep = False
 
         # ---- left: preview + action bar + stats
         self.preview = PreviewWidget()
@@ -153,7 +154,7 @@ class MainWindow(QMainWindow):
         menu.addAction(self.act_snap)
         self.act_sleep = QAction("Sleep camera", self)
         self.act_sleep.setCheckable(True)
-        self.act_sleep.triggered.connect(lambda on: self.engine.set_sleeping(on))
+        self.act_sleep.triggered.connect(self._manual_sleep_toggled)
         menu.addAction(self.act_sleep)
         menu.addSeparator()
         quit_a = QAction("Quit", self)
@@ -171,13 +172,17 @@ class MainWindow(QMainWindow):
             else:
                 self.show_window()
 
+    def _manual_sleep_toggled(self, on: bool) -> None:
+        self._manual_sleep = on
+        self.engine.set_sleeping(on)
+
     def show_window(self) -> None:
         self._hidden_since = None
         self.showNormal()
         self.raise_()
         self.activateWindow()
-        if self.engine.sleeping and not self.act_sleep.isChecked():
-            self.engine.set_sleeping(False)
+        if self.engine.sleeping and not self._manual_sleep:
+            self.engine.set_sleeping(False)       # auto-sleep ends when the window returns
 
     def hide_to_tray(self) -> None:
         self.hide()

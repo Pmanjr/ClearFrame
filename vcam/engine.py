@@ -568,7 +568,19 @@ class Engine:
                     bgr = self.splash.get(self.settings.output_size(), ps.splash_path, "Camera paused")
                     rgba = alpha = fg = None
                 else:
-                    bgr, rgba, alpha, fg = self.process(frame, new_frame)
+                    try:
+                        bgr, rgba, alpha, fg = self.process(frame, new_frame)
+                    except Exception as e:  # noqa: BLE001 - one bad frame must not kill the camera
+                        if self._warned.isdisjoint({"process"}):
+                            self._warned.add("process")
+                            log.exception("Frame processing failed; passing the camera through")
+                        self._note("process", f"Processing error: {e}")
+                        size = self.settings.output_size()
+                        bgr, rgba, alpha, fg = cv2.resize(frame, size), None, None, None
+                    else:
+                        if "process" in self.stats.notes:
+                            self._note("process", None)
+                            self._warned.discard("process")
                 if self.out is not None:
                     self.out.send(bgr, rgba)
                     self._timer.lap("vcam send")

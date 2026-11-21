@@ -14,7 +14,7 @@ def add_bonus_rows(f: Form, win) -> None:
 
     f.section("Presenter mode")
     f.check("Show my screen behind me", ex, "presenter")
-    f.combo("Screen", ex, "presenter_monitor", list_monitors())
+    f.combo("Screen", ex, "presenter_monitor", [(label, i) for i, label in list_monitors()])
     f.slider("My size", ex, "presenter_scale", 0.15, 1.0, decimals=2)
     f.combo("My position", ex, "presenter_anchor", [(a.replace("-", " ").title(), a) for a in ANCHORS])
     f.hint("Replaces the background with a live capture of the chosen screen and places you, "
