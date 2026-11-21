@@ -496,13 +496,14 @@ class Engine:
             self.overlays.draw(bgr, layers)
             self.nametag.draw(bgr, s.nametag)
             if want_rgba:
-                src, a2 = fg.copy(), alpha.copy()
+                src = comp.fallback_fill(fg, alpha, parse_color(bs.remove_fallback_color))
+                a2 = alpha.copy()
                 self.overlays.draw(src, layers, a2)
                 self.nametag.draw(src, s.nametag, a2)
                 rgba = comp.to_rgba(src, a2)
             t.lap("overlays")
         if want_rgba and rgba is None:
-            rgba = comp.to_rgba(fg, alpha)
+            rgba = comp.to_rgba(comp.fallback_fill(fg, alpha, parse_color(bs.remove_fallback_color)), alpha)
         return bgr, rgba, alpha, fg
 
     # ----------------------------------------------------------------- loop

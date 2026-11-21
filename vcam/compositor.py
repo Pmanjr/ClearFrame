@@ -78,6 +78,18 @@ def to_rgba(fg_bgr: np.ndarray, a8: np.ndarray) -> np.ndarray:
     return rgba
 
 
+def fallback_fill(fg_bgr: np.ndarray, a8: np.ndarray, color_bgr: tuple[int, int, int]) -> np.ndarray:
+    """Colour plane for RGBA output (Unity Capture). (Nearly) transparent
+    pixels carry the fallback colour, so a consumer that ignores alpha shows
+    the person on that colour instead of the real room. Pixels with real
+    coverage keep the untouched camera colour, so alpha-aware apps (OBS) get
+    no colour fringe."""
+    src = fg_bgr.copy()
+    clear = cv2.compare(a8, 24, cv2.CMP_LT)
+    cv2.copyTo(_solid(fg_bgr.shape[:2], tuple(int(c) for c in color_bgr)), clear, src)
+    return src
+
+
 def overlay_bgra(dst: np.ndarray, src: np.ndarray, x: int, y: int, opacity: float = 1.0,
                  dst_alpha: np.ndarray | None = None) -> None:
     """Alpha-blend BGR/BGRA `src` onto `dst` in place at (x, y), clipped.
