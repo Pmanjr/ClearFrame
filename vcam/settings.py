@@ -62,6 +62,8 @@ class CameraSettings:
     saturation: float = 0.0        # -100..100
     hue: float = 0.0               # -180..180 degrees
     gamma: float = 1.0             # 0.3..3.0
+    denoise: float = 0.5           # 0..1 temporal + chroma noise reduction (0 = off)
+    sharpen: float = 0.15          # 0..1 unsharp mask after noise reduction
     # hardware UVC controls: name -> value (only those the user touched)
     uvc: dict = field(default_factory=dict)
 
@@ -73,9 +75,10 @@ class SegmentationSettings:
     dml_device: int = 0
     rvm_precision: str = "fp32"    # fp32 | fp16
     rvm_refiner: str = "guided"    # guided (fast guided filter) | rvm (built-in refiner)
-    downsample_ratio: float = 0.25
+    downsample_ratio: float = 0.375   # model input scale; 0.375 keeps headphones / thin objects solid
     ema: float = 0.35              # 0 = off, higher = smoother / laggier
     edge_tighten: float = 0.3      # 0..1 contract the soft edge (kills halo)
+    solidity: float = 0.4          # 0..1 make half-transparent parts (headset, chair) opaque
     calibrated: bool = False
     target_fps: int = 30
 
@@ -202,6 +205,7 @@ class Settings:
     pexels_api_key: str = ""
     unsplash_api_key: str = ""
     mirror_preview: bool = True
+    schema: int = 2
     start_minimized: bool = False
     close_to_tray: bool = False     # X button: False = quit, True = keep running in the tray
     minimize_to_tray: bool = True   # minimise button hides the window in the tray
@@ -229,7 +233,15 @@ class Settings:
         if not path.exists():
             return cls()
         try:
-            return _from_dict(cls, json.loads(path.read_text(encoding="utf-8")))
+            data = json.loads(path.read_text(encoding="utf-8"))
+            s = _from_dict(cls, data)
+            if int(data.get("schema", 1)) < 2:
+                # v2: larger model input so headphones and thin objects stay solid
+                if abs(s.seg.downsample_ratio - 0.25) < 1e-6:
+                    s.seg.downsample_ratio = 0.375
+                s.seg.calibrated = False
+                s.schema = 2
+            return s
         except Exception as e:  # noqa: BLE001
             log.warning("Could not read %s (%s); using defaults", path, e)
             return cls()

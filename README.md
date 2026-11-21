@@ -12,11 +12,15 @@ The person's pixels are never downscaled.
   fall back to 720p or lower in YUY2). The negotiated resolution, FPS and
   FOURCC are logged at startup, with a loud warning (log + banner above the
   preview) if they differ from what was requested.
-- Segmentation runs on a downscaled *copy* only (480x270 for RVM at 1080p).
+- Segmentation runs on a downscaled *copy* only (720x404 for RVM at 1080p by
+  default).
 - Only the alpha mask is upsampled: a fast guided filter against the
   full-resolution frame, or RVM's built-in refiner.
-- Compositing happens at full resolution. Where alpha is 255 the output pixel
-  is bit-identical to the camera pixel.
+- Compositing happens at full resolution. With noise reduction and sharpen
+  at 0, the output pixel is bit-identical to the camera pixel wherever alpha
+  is 255. Noise reduction (on by default) also works at full resolution: it
+  averages frames over time where nothing moves and smooths only chroma, so
+  luma detail is never resampled.
 
 ## Quick start
 
@@ -148,13 +152,15 @@ On the development machine (Radeon RX 9070 XT via DirectML, 16 threads):
 
 | Stage (1920x1080) | Time |
 | --- | --- |
-| RVM fp32 model (DirectML) | ~5 ms |
-| RVM + guided-filter mask upsample | ~9.5 ms |
+| RVM fp32 model (DirectML), 480x270 / 720x404 input | ~5 ms / ~8 ms |
+| RVM + guided-filter mask upsample, 0.25 / 0.375 detail | ~10 ms / ~13 ms |
+| Noise reduction + sharpen | ~6 ms |
 | MediaPipe selfie + guided filter (CPU) | ~8 ms |
 | Blend (replace / colour / remove) | ~1.8 ms |
 | Blur background + blend | ~4.8 ms |
-| Whole frame: replace / colour / remove | ~11.5 ms (85 FPS max) |
-| Whole frame: blur | ~15 ms (67 FPS max) |
+| Whole frame at defaults: replace / colour / remove | ~20 ms (50 FPS max) |
+| Whole frame at defaults: blur | ~23 ms (43 FPS max) |
+| Whole frame, detail 0.25, noise reduction off: replace / blur | ~11.5 / ~15 ms |
 
 The profile showed compositing itself is under 2 ms with OpenCV's SIMD uint8
 kernels, so it stays on the CPU: uploading 1080p frames to the GPU and
@@ -175,6 +181,18 @@ were fixed in the performance pass.
 - **Performance mode** runs the MediaPipe selfie segmenter through the
   MediaPipe Tasks runtime (TFLite/XNNPACK on CPU, ~2-3 ms) rather than ONNX
   Runtime; converting the model to ONNX would add nothing.
+- **Model detail 0.375** (720x404 model input) instead of RVM's suggested
+  0.25: at 480x270 a headset band or ear cup is only a few pixels wide and
+  comes out half-transparent. *Solid objects* (default 0.4) additionally
+  lifts mid alpha towards opaque for things attached to you (headset, chair
+  back, microphone). The guided-filter fit runs on a 360 px copy whatever the
+  model size, so the extra detail costs about 3 ms. Lower Model detail to
+  0.25 for the fastest setting, raise to 0.5 for the finest.
+- **Noise reduction** (Camera tab, default 0.5) and **Sharpen** (default
+  0.15): motion-adaptive temporal averaging with the noise floor estimated
+  from the picture, plus chroma-only smoothing. About 6 ms at 1080p. It
+  cannot fix a dark room: in low light the sensor raises gain and drops to
+  ~15 FPS, so a lamp facing you helps more than any filter.
 - **Temporal EMA** is motion-adaptive (smooths static regions, follows moving
   edges) and runs on the small mask. *Edge tighten* contracts the soft edge
   slightly to remove the halo of old background around hair.

@@ -26,6 +26,8 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--cam-fps", type=int, default=30, choices=[15, 24, 25, 30, 50, 60])
     g.add_argument("--fourcc", default="MJPG", help="capture pixel format to request (default MJPG)")
     g.add_argument("--cam-backend", default="dshow", choices=["dshow", "msmf"])
+    g.add_argument("--denoise", type=float, default=0.5, help="noise reduction 0-1 (0 = off)")
+    g.add_argument("--sharpen", type=float, default=0.15, help="sharpen 0-1 (0 = off)")
     g.add_argument("--input", default=None, help="image/video file to use instead of a camera (testing)")
 
     g = p.add_argument_group("background")
@@ -45,7 +47,9 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--precision", default="fp32", choices=["fp32", "fp16"])
     g.add_argument("--refiner", default="guided", choices=["guided", "rvm"],
                    help="alpha upsampling: fast guided filter, or RVM's built-in refiner")
-    g.add_argument("--downsample", type=float, default=0.25, help="RVM downsample ratio (0.25 for 1080p)")
+    g.add_argument("--downsample", type=float, default=0.375,
+                   help="model input scale (0.25 = fastest, 0.375 keeps headphones solid, 0.5 = finest)")
+    g.add_argument("--solidity", type=float, default=0.4, help="make half-transparent parts opaque 0-1")
     g.add_argument("--ema", type=float, default=0.35, help="temporal mask smoothing 0-0.95")
 
     g = p.add_argument_group("output")
@@ -83,6 +87,7 @@ def settings_from_args(a: argparse.Namespace) -> Settings:
         raise SystemExit(f"--cam-res must look like 1920x1080, got {a.cam_res!r}")
     s.camera.width, s.camera.height, s.camera.fps = w, h, a.cam_fps
     s.camera.fourcc, s.camera.backend = a.fourcc, a.cam_backend
+    s.camera.denoise, s.camera.sharpen, s.seg.solidity = a.denoise, a.sharpen, a.solidity
     b = s.background
     b.mode, b.blur_strength, b.bokeh = a.mode, a.blur, a.bokeh
     b.replace_path, b.fit, b.replace_blur = a.bg, a.bg_fit, a.bg_blur

@@ -184,6 +184,14 @@ class CameraTab(QWidget):
         f.combo("Capture API", cs, "backend", [("DirectShow", "dshow"), ("Media Foundation", "msmf")], request="camera")
         self.negotiated = f.hint("")
 
+        f.section("Picture quality")
+        f.slider("Noise reduction", cs, "denoise", 0.0, 1.0, decimals=2,
+                 tooltip="Averages frames where nothing moves and smooths colour speckle. "
+                         "Detail (luma) is kept at full resolution. 0 = off.")
+        f.slider("Sharpen", cs, "sharpen", 0.0, 1.0, decimals=2)
+        f.hint("Webcam grain comes from low light: the sensor raises gain and drops to ~15 FPS. "
+               "A lamp facing you improves the picture more than any filter.")
+
         f.section("Image (software)")
         f.slider("Brightness", cs, "brightness", -100, 100)
         f.slider("Contrast", cs, "contrast", -100, 100)
@@ -237,6 +245,7 @@ class CameraTab(QWidget):
         cs = self.win.settings.camera
         cs.brightness = cs.contrast = cs.saturation = cs.hue = 0.0
         cs.gamma = 1.0
+        cs.denoise, cs.sharpen = 0.5, 0.15
         self.form.refresh()
         self.win.on_changed(None)
 
@@ -305,8 +314,11 @@ class SettingsTab(QWidget):
         f.combo("RVM precision", g, "rvm_precision", [("fp32", "fp32"), ("fp16", "fp16")], request="segmenter")
         f.combo("Mask upsampling", g, "rvm_refiner", [("Fast guided filter", "guided"),
                                                       ("RVM built-in refiner", "rvm")], request="segmenter")
-        f.slider("Model scale", g, "downsample_ratio", 0.15, 0.5, decimals=2, request="segmenter",
-                 tooltip="Size of the downscaled copy the model sees. 0.25 is right for 1080p.")
+        f.slider("Model detail", g, "downsample_ratio", 0.2, 0.5, decimals=3, request="segmenter",
+                 tooltip="Size of the downscaled copy the model sees. 0.25 is fastest; 0.375 keeps "
+                         "headphones and thin objects solid; 0.5 is finest and slowest.")
+        f.slider("Solid objects", g, "solidity", 0.0, 1.0, decimals=2,
+                 tooltip="Makes half-transparent parts (headset, chair back, microphone) opaque.")
         f.slider("Flicker smoothing", g, "ema", 0.0, 0.9, decimals=2)
         f.slider("Edge tighten", g, "edge_tighten", 0.0, 1.0, decimals=2)
         f.button("Run calibration...", win.run_calibration)

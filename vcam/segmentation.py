@@ -37,14 +37,21 @@ def _model(name: str) -> Path:
 # ---------------------------------------------------------------------------
 # Mask utilities
 # ---------------------------------------------------------------------------
+FIT_W = 360
+
+
 def downscale(frame: np.ndarray, size: tuple[int, int]) -> np.ndarray:
-    """Area downscale; exact 4x reductions go through two SIMD 2x steps
-    (about 3x faster than one generic INTER_AREA pass, same result)."""
+    """Anti-aliased downscale for the model input. Exact 2x area steps are
+    SIMD fast paths; the remainder (< 2x) is bilinear. Several times faster
+    than one generic INTER_AREA pass, with no visible aliasing."""
     w, h = size
     H, W = frame.shape[:2]
-    if W == w * 4 and H == h * 4:
-        frame = cv2.resize(frame, (w * 2, h * 2), interpolation=cv2.INTER_AREA)
-    return cv2.resize(frame, (w, h), interpolation=cv2.INTER_AREA)
+    while W >= w * 2 and H >= h * 2 and W % 2 == 0 and H % 2 == 0:
+        W, H = W // 2, H // 2
+        frame = cv2.resize(frame, (W, H), interpolation=cv2.INTER_AREA)
+    if (W, H) != (w, h):
+        frame = cv2.resize(frame, (w, h), interpolation=cv2.INTER_LINEAR)
+    return frame
 
 
 def guided_upsample(alpha_small: np.ndarray, guide_small_bgr: np.ndarray,
@@ -57,17 +64,25 @@ def guided_upsample(alpha_small: np.ndarray, guide_small_bgr: np.ndarray,
     `ws` is a per-caller workspace dict: the full-resolution float scratch
     buffers live there so they are not reallocated (and page-faulted) on
     every frame, which is where most of the time used to go."""
+    # The linear fit is smooth, so it never needs more than FIT_W pixels of
+    # width: fitting a larger mask on a reduced copy gives the same result
+    # (mean alpha difference ~0.1/255) for a third of the cost.
+    sw = guide_small_bgr.shape[1]
+    if sw > FIT_W:
+        fw, fh = FIT_W, max(2, round(guide_small_bgr.shape[0] * FIT_W / sw))
+        guide_small_bgr = cv2.resize(guide_small_bgr, (fw, fh), interpolation=cv2.INTER_AREA)
+        alpha_small = cv2.resize(alpha_small, (fw, fh), interpolation=cv2.INTER_AREA)
+        radius = max(2, round(radius * FIT_W / sw))
     I = cv2.cvtColor(guide_small_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32) * (1.0 / 255.0)
     p = alpha_small
     k = (2 * radius + 1, 2 * radius + 1)
-    mean_I = cv2.blur(I, k)
-    mean_p = cv2.blur(p, k)
-    cov_Ip = cv2.blur(I * p, k) - mean_I * mean_p
-    var_I = cv2.blur(I * I, k) - mean_I * mean_I
-    a = cov_Ip / (var_I + eps)
+    # one 4-channel box filter instead of four separate ones
+    m = cv2.blur(cv2.merge((I, p, I * p, I * I)), k)
+    mean_I, mean_p = m[..., 0], m[..., 1]
+    a = (m[..., 2] - mean_I * mean_p) / (m[..., 3] - mean_I * mean_I + eps)
     b = mean_p - a * mean_I
-    a = cv2.blur(a, k)
-    b = cv2.blur(b, k)
+    ab = cv2.blur(cv2.merge((a, b)), k)
+    a, b = np.ascontiguousarray(ab[..., 0]), np.ascontiguousarray(ab[..., 1])
     H, W = guide_full_bgr.shape[:2]
     if ws is None:
         ws = {}
@@ -86,13 +101,23 @@ def guided_upsample(alpha_small: np.ndarray, guide_small_bgr: np.ndarray,
     return cv2.addWeighted(q, 1.0, b_full, 255.0, 0.0, dtype=cv2.CV_8U)
 
 
-@functools.lru_cache(maxsize=32)
-def _edge_lut(tighten: float) -> np.ndarray:
-    """Alpha curve that contracts the soft edge a little, which removes the
-    thin halo of old background around hair and shoulders."""
+@functools.lru_cache(maxsize=64)
+def _edge_lut(tighten: float, solidity: float = 0.0) -> np.ndarray:
+    """Alpha curve applied to the finished mask.
+
+    tighten:  cuts the faintest alpha, removing the thin halo of old
+              background around hair and shoulders.
+    solidity: lifts mid alpha towards opaque. The matting model is unsure
+              about things attached to a person (headphones, a chair back,
+              a microphone) and returns them half-transparent; this makes
+              them solid without hardening the outline much.
+    """
     lo = 0.45 * float(np.clip(tighten, 0.0, 1.0))
     x = np.arange(256, dtype=np.float32) / 255.0
-    return np.clip((x - lo) / max(1.0 - lo - 0.02, 1e-3) * 255.0 + 0.5, 0, 255).astype(np.uint8)
+    x = np.clip((x - lo) / max(1.0 - lo - 0.02, 1e-3), 0.0, 1.0)
+    power = 1.0 + 3.0 * float(np.clip(solidity, 0.0, 1.0))
+    x = 1.0 - np.power(1.0 - x, power)
+    return np.clip(x * 255.0 + 0.5, 0, 255).astype(np.uint8)
 
 
 class TemporalEMA:
@@ -111,10 +136,13 @@ class TemporalEMA:
             self.prev = mask.copy()
             return mask
         keep = float(np.clip(strength, 0.0, 0.95))
-        diff = cv2.absdiff(mask, self.prev)
         # weight of the new sample: (1-keep) when static, -> 1 when it moves
-        w = np.clip((1.0 - keep) + diff * 3.0, 0.0, 1.0)
-        out = self.prev + (mask - self.prev) * w
+        w = cv2.absdiff(mask, self.prev)
+        cv2.addWeighted(w, 3.0, w, 0.0, 1.0 - keep, dst=w)
+        cv2.min(w, 1.0, dst=w)
+        delta = cv2.subtract(mask, self.prev)
+        cv2.multiply(delta, w, dst=delta)
+        out = cv2.add(self.prev, delta)
         self.prev = out
         return out
 
@@ -164,6 +192,7 @@ class Segmenter:
         self.ema = TemporalEMA()
         self.ema_strength = 0.35
         self.edge_tighten = 0.3
+        self.solidity = 0.4
         self._ws: dict = {}      # scratch buffers for guided_upsample
         self.infer_ms = 0.0      # model only
         self.total_ms = 0.0      # model + resize + EMA + upsample
@@ -172,7 +201,9 @@ class Segmenter:
         self.ema.reset()
 
     def _finish(self, a8: np.ndarray) -> np.ndarray:
-        return cv2.LUT(a8, _edge_lut(self.edge_tighten)) if self.edge_tighten > 0 else a8
+        if self.edge_tighten <= 0 and self.solidity <= 0:
+            return a8
+        return cv2.LUT(a8, _edge_lut(round(self.edge_tighten, 3), round(self.solidity, 3)))
 
     def alpha(self, frame_bgr: np.ndarray) -> np.ndarray:
         """Full-resolution uint8 alpha (255 = person)."""
@@ -239,7 +270,7 @@ class RVMSegmenter(Segmenter):
             sh = max(64, int(round(H * self.ratio / 2)) * 2)
             small = downscale(frame_bgr, (sw, sh))
             pha = self.ema(self._run(small, 1.0), self.ema_strength)
-            out = guided_upsample(pha, small, frame_bgr, ws=self._ws)
+            out = guided_upsample(pha, small, frame_bgr, radius=max(2, round(sw / 160)), ws=self._ws)
         out = self._finish(out)
         self.total_ms = (time.perf_counter() - t0) * 1000.0
         return out
@@ -306,6 +337,6 @@ def create_segmenter(s: SegmentationSettings) -> Segmenter:
             seg = RVMSegmenter(provider, s.dml_device, s.rvm_precision, s.rvm_refiner, s.downsample_ratio)
     else:
         seg = RVMSegmenter(provider, s.dml_device, s.rvm_precision, s.rvm_refiner, s.downsample_ratio)
-    seg.ema_strength, seg.edge_tighten = s.ema, s.edge_tighten
+    seg.ema_strength, seg.edge_tighten, seg.solidity = s.ema, s.edge_tighten, s.solidity
     log.info("Segmenter: %s on %s", seg.name, seg.provider.upper())
     return seg

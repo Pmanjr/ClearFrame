@@ -25,6 +25,7 @@ from . import compositor as comp
 from . import pause as pause_mod
 from .autoframe import AutoFramer
 from .capture import FileCapture, Negotiated, ThreadedCapture
+from .denoise import Denoiser, sharpen
 from .devices import resolve_camera
 from .lighting import LightingEnhancer
 from .media import MediaSource, open_media
@@ -90,6 +91,7 @@ class Engine:
         self.nametag = NameTagRenderer()
         self.framer = AutoFramer()
         self.lighting = LightingEnhancer()
+        self.denoiser = Denoiser()
         self.pause = PauseController()
         self.splash = Splash()
         self._lut = None              # (path, Lut3D)
@@ -255,6 +257,7 @@ class Engine:
             self.seg.reset()
         self.framer.reset()
         self.lighting.reset()
+        self.denoiser.reset()
         self._alpha = None
         self._last_id = 0
         return True
@@ -317,7 +320,8 @@ class Engine:
             self.seg = None
         self.stats.status = "calibrating"
         target = max(15, self.settings.output.fps)
-        results, best = run_calibration(target, frame, progress, cancel=lambda: not self._running)
+        results, best = run_calibration(target, frame, progress, cancel=lambda: not self._running,
+                                        downsample_ratio=self.settings.seg.downsample_ratio)
         if not self._running:
             return
         if best is not None:
@@ -348,7 +352,9 @@ class Engine:
         """Colour pipeline on the full-resolution frame (never resampled)."""
         s = self.settings
         cs = s.camera
-        fg = comp.adjust(frame, cs.brightness, cs.contrast, cs.saturation, cs.hue, cs.gamma)
+        fg = self.denoiser.apply(frame, cs.denoise, new_frame)
+        fg = sharpen(fg, cs.sharpen)
+        fg = comp.adjust(fg, cs.brightness, cs.contrast, cs.saturation, cs.hue, cs.gamma)
         if s.lighting.enabled:
             fg = self.lighting.apply(fg, s.lighting.strength, update=new_frame)
         ex = s.extras
@@ -461,6 +467,7 @@ class Engine:
         if (mode != "original" or presenter) and self.seg is not None:
             if new_frame or self._alpha is None or self._alpha.shape[:2] != frame.shape[:2]:
                 self.seg.ema_strength, self.seg.edge_tighten = s.seg.ema, s.seg.edge_tighten
+                self.seg.solidity = s.seg.solidity
                 self._alpha = self.seg.alpha(frame)
             alpha = self._alpha
         t.lap("segment")
