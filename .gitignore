@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+models/*
+!models/.gitkeep
+build/
+dist/
+*.spec.bak
+settings.local.json
+.env
+snapshots/
