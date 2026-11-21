@@ -59,10 +59,17 @@ def blend(fg: np.ndarray, bg: np.ndarray, a8: np.ndarray) -> np.ndarray:
     return out
 
 
+@functools.lru_cache(maxsize=4)
+def _solid(shape: tuple[int, int], color_bgr: tuple[int, int, int]) -> np.ndarray:
+    img = np.empty((shape[0], shape[1], 3), np.uint8)
+    img[:] = color_bgr
+    img.setflags(write=False)
+    return img
+
+
 def blend_color(fg: np.ndarray, color_bgr: tuple[int, int, int], a8: np.ndarray) -> np.ndarray:
-    bg = np.empty_like(fg)
-    bg[:] = color_bgr
-    return blend(fg, bg, a8)
+    """Person over a solid colour (the colour plane is cached, not refilled)."""
+    return blend(fg, _solid(fg.shape[:2], tuple(int(c) for c in color_bgr)), a8)
 
 
 def to_rgba(fg_bgr: np.ndarray, a8: np.ndarray) -> np.ndarray:
@@ -150,7 +157,7 @@ def blur_background(frame: np.ndarray, a8: np.ndarray | None, strength: float,
         den = cv2.GaussianBlur(w, (0, 0), sigma, borderType=cv2.BORDER_REFLECT)
     out = num / np.maximum(den, 1e-6)[..., None]
     out = cv2.convertScaleAbs(out)
-    return cv2.resize(out, (W, H), interpolation=cv2.INTER_CUBIC if ds > 2 else cv2.INTER_LINEAR)
+    return cv2.resize(out, (W, H), interpolation=cv2.INTER_LINEAR)
 
 
 # ---------------------------------------------------------------------------

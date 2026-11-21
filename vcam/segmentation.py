@@ -37,11 +37,26 @@ def _model(name: str) -> Path:
 # ---------------------------------------------------------------------------
 # Mask utilities
 # ---------------------------------------------------------------------------
+def downscale(frame: np.ndarray, size: tuple[int, int]) -> np.ndarray:
+    """Area downscale; exact 4x reductions go through two SIMD 2x steps
+    (about 3x faster than one generic INTER_AREA pass, same result)."""
+    w, h = size
+    H, W = frame.shape[:2]
+    if W == w * 4 and H == h * 4:
+        frame = cv2.resize(frame, (w * 2, h * 2), interpolation=cv2.INTER_AREA)
+    return cv2.resize(frame, (w, h), interpolation=cv2.INTER_AREA)
+
+
 def guided_upsample(alpha_small: np.ndarray, guide_small_bgr: np.ndarray,
-                    guide_full_bgr: np.ndarray, radius: int = 3, eps: float = 2e-4) -> np.ndarray:
+                    guide_full_bgr: np.ndarray, radius: int = 3, eps: float = 2e-4,
+                    ws: dict | None = None) -> np.ndarray:
     """Fast guided filter (He & Sun 2015): fit alpha ~= a*I + b on the small
     image, upsample the coefficients, apply them to the full-res luma. Edges
-    of the result follow the full-resolution image. Returns uint8 HxW."""
+    of the result follow the full-resolution image. Returns uint8 HxW.
+
+    `ws` is a per-caller workspace dict: the full-resolution float scratch
+    buffers live there so they are not reallocated (and page-faulted) on
+    every frame, which is where most of the time used to go."""
     I = cv2.cvtColor(guide_small_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32) * (1.0 / 255.0)
     p = alpha_small
     k = (2 * radius + 1, 2 * radius + 1)
@@ -54,11 +69,20 @@ def guided_upsample(alpha_small: np.ndarray, guide_small_bgr: np.ndarray,
     a = cv2.blur(a, k)
     b = cv2.blur(b, k)
     H, W = guide_full_bgr.shape[:2]
-    a_full = cv2.resize(a, (W, H), interpolation=cv2.INTER_LINEAR)
-    b_full = cv2.resize(b, (W, H), interpolation=cv2.INTER_LINEAR)
-    gray_full = cv2.cvtColor(guide_full_bgr, cv2.COLOR_BGR2GRAY)
+    if ws is None:
+        ws = {}
+    if ws.get("shape") != (H, W):
+        ws["shape"] = (H, W)
+        ws["a"] = np.empty((H, W), np.float32)
+        ws["b"] = np.empty((H, W), np.float32)
+        ws["q"] = np.empty((H, W), np.float32)
+        ws["gray"] = np.empty((H, W), np.uint8)
+    a_full = cv2.resize(a, (W, H), dst=ws["a"], interpolation=cv2.INTER_LINEAR)
+    b_full = cv2.resize(b, (W, H), dst=ws["b"], interpolation=cv2.INTER_LINEAR)
+    gray_full = cv2.cvtColor(guide_full_bgr, cv2.COLOR_BGR2GRAY, dst=ws["gray"])
     # q = a * (gray/255) + b, scaled to 0..255 and saturated to uint8 in one pass
-    q = cv2.multiply(a_full, gray_full, scale=1.0, dtype=cv2.CV_32F)
+    q = cv2.multiply(a_full, gray_full, dst=ws["q"], scale=1.0, dtype=cv2.CV_32F)
+    # the result is a fresh array: it is published to the UI / kept across frames
     return cv2.addWeighted(q, 1.0, b_full, 255.0, 0.0, dtype=cv2.CV_8U)
 
 
@@ -140,6 +164,7 @@ class Segmenter:
         self.ema = TemporalEMA()
         self.ema_strength = 0.35
         self.edge_tighten = 0.3
+        self._ws: dict = {}      # scratch buffers for guided_upsample
         self.infer_ms = 0.0      # model only
         self.total_ms = 0.0      # model + resize + EMA + upsample
 
@@ -205,15 +230,16 @@ class RVMSegmenter(Segmenter):
         t0 = time.perf_counter()
         H, W = frame_bgr.shape[:2]
         if self.refiner == "rvm":
-            pha = self.ema(self._run(frame_bgr, self.ratio), self.ema_strength)
-            out = cv2.convertScaleAbs(pha, alpha=255.0)
+            # RVM is temporally stable by itself (recurrent state); an extra
+            # full-resolution EMA would cost ~6 ms for no visible gain.
+            out = cv2.convertScaleAbs(self._run(frame_bgr, self.ratio), alpha=255.0)
         else:
             # keep dimensions even so the recurrent pyramid is stable
             sw = max(64, int(round(W * self.ratio / 2)) * 2)
             sh = max(64, int(round(H * self.ratio / 2)) * 2)
-            small = cv2.resize(frame_bgr, (sw, sh), interpolation=cv2.INTER_AREA)
+            small = downscale(frame_bgr, (sw, sh))
             pha = self.ema(self._run(small, 1.0), self.ema_strength)
-            out = guided_upsample(pha, small, frame_bgr)
+            out = guided_upsample(pha, small, frame_bgr, ws=self._ws)
         out = self._finish(out)
         self.total_ms = (time.perf_counter() - t0) * 1000.0
         return out
@@ -255,7 +281,7 @@ class MediaPipeSegmenter(Segmenter):
         # sharpen the soft sigmoid a little so edges are decisive before refinement
         m = np.clip((m - 0.5) * 2.2 + 0.5, 0.0, 1.0)
         m = self.ema(m, self.ema_strength)
-        out = self._finish(guided_upsample(m, small, frame_bgr, radius=2, eps=1e-3))
+        out = self._finish(guided_upsample(m, small, frame_bgr, radius=2, eps=1e-3, ws=self._ws))
         self.total_ms = (time.perf_counter() - t0) * 1000.0
         return out
 
