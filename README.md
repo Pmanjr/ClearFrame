@@ -255,3 +255,19 @@ clearframe/
 scripts/
   download_models.py, profile_pipeline.py
 ```
+
+## License
+
+ClearFrame's own code is released under the [MIT License](LICENSE).
+
+The models are not part of this repository; `scripts/download_models.py`
+fetches them from their authors and they keep their own licenses:
+
+- Robust Video Matting (`rvm_mobilenetv3_*.onnx`) - GPL-3.0,
+  <https://github.com/PeterL1n/RobustVideoMatting>
+- MediaPipe selfie segmenter and BlazeFace (`*.tflite`) - Apache-2.0,
+  <https://github.com/google-ai-edge/mediapipe>
+
+Unity Capture (virtual camera driver, installed separately) is under the
+zlib license. If you redistribute a build that bundles the RVM model, the
+GPL-3.0 terms of that model apply to that distribution.
