@@ -113,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
         while True:
             if a.preview:
                 import cv2
-                bgr, _, n = eng.latest()
+                bgr, _, _, n = eng.latest()
                 if bgr is not None and n != shown:
                     shown = n
                     cv2.imshow("vcam-clone preview (q to quit)", bgr)

@@ -59,3 +59,14 @@ driver is missing.
 .\.venv\Scripts\python.exe -m vcam --benchmark
 .\.venv\Scripts\python.exe -m vcam cli --help
 ```
+
+## Desktop app (Phase 2)
+
+```powershell
+.\.venv\Scripts\python.exe -m vcam
+```
+
+Live preview, settings tabs (Background, Camera, Output, Settings) and a
+system tray icon. Closing or minimising the window hides it in the tray; the
+virtual camera keeps running. Settings are saved to
+`%APPDATA%\vcam-clone\settings.json`.

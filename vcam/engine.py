@@ -22,6 +22,7 @@ from .media import MediaSource, open_media
 from .output import VirtualCamError, VirtualCamOutput
 from .segmentation import ModelMissing, Segmenter, create_segmenter
 from .settings import Settings, parse_color, pictures_dir
+from .splash import Splash
 
 log = logging.getLogger("vcam.engine")
 
@@ -85,6 +86,11 @@ class Engine:
         self._timer = _Timer()
         self._warned: set[str] = set()
         self.on_error = None          # callback(str)
+        self.sleeping = False         # camera released, splash on the output
+        self.splash = Splash()
+        self._latest_fg: np.ndarray | None = None
+        self._calib = None            # (progress_cb, done_cb) when requested
+        self._last_id = 0
 
     # ------------------------------------------------------------------ API
     def request(self, *what: str) -> None:
@@ -105,22 +111,46 @@ class Engine:
             self._thread.join(timeout=5.0)
             self._thread = None
 
-    def latest(self) -> tuple[np.ndarray | None, np.ndarray | None, int]:
-        """(composited BGR, alpha or None, frame counter) of the newest frame."""
+    def latest(self):
+        """(composited BGR, alpha or None, foreground BGR or None, frame counter)."""
         with self._latest_lock:
-            return self._latest_bgr, self._latest_alpha, self._frame_count
+            return self._latest_bgr, self._latest_alpha, self._latest_fg, self._frame_count
+
+    def set_sleeping(self, sleeping: bool) -> None:
+        """Power saving: release the physical camera and show the splash."""
+        if sleeping == self.sleeping:
+            return
+        self.sleeping = sleeping
+        log.info("Camera %s.", "sleeping (released)" if sleeping else "waking")
+        if not sleeping:
+            self.request("camera")
+
+    def calibrate(self, progress=None, done=None) -> None:
+        """Benchmark models/providers on the engine thread, apply the winner.
+        progress(i, n, label) and done(results, best) are called from that thread."""
+        self._calib = (progress, done)
+        self.request("calibrate")
+
+    def camera_prop(self, name: str, value: float | None = None):
+        """Get (value=None) or set a hardware UVC control on the open camera."""
+        cap = self.cap
+        if cap is None:
+            return None
+        if value is None:
+            return cap.get_prop(name)
+        return cap.set_prop(name, value)
 
     def snapshot(self, path: str | Path | None = None) -> Path | None:
         """Save the current composited frame as PNG (with alpha in Remove mode)."""
-        bgr, alpha, _ = self.latest()
+        bgr, alpha, fg, _ = self.latest()
         if bgr is None:
             return None
         if path is None:
             path = pictures_dir() / time.strftime("vcam-%Y%m%d-%H%M%S.png")
         path = Path(path)
         img = bgr
-        if alpha is not None and self.settings.background.mode == "remove" and self._latest_fg is not None:
-            img = cv2.cvtColor(self._latest_fg, cv2.COLOR_BGR2BGRA)
+        if alpha is not None and fg is not None and self.settings.background.mode == "remove":
+            img = cv2.cvtColor(fg, cv2.COLOR_BGR2BGRA)
             img[..., 3] = alpha
         img = img.copy()
 
@@ -132,8 +162,6 @@ class Engine:
                 log.info("Snapshot saved: %s", path)
         threading.Thread(target=_save, daemon=True).start()
         return path
-
-    _latest_fg: np.ndarray | None = None
 
     # ------------------------------------------------------------ internals
     def _warn_once(self, key: str, msg: str) -> None:
@@ -176,8 +204,8 @@ class Engine:
             return False
         self.stats.camera = self.cap.name
         self.stats.capture = neg
-        self.stats.warnings = [f"Capture: {w}" for w in neg.warnings]
-        self._warned.clear()
+        self.stats.warnings = [w for w in self.stats.warnings if not w.startswith(("Capture", "Source"))]             + [f"Capture is not what was requested: {w}" for w in neg.warnings]
+        self._warned.discard("upscale")
         for name, value in (cs.uvc or {}).items():
             self.cap.set_prop(name, value)
         if self.seg:
@@ -210,6 +238,8 @@ class Engine:
             self.out = None
         o = self.settings.output
         self.stats.output = ""
+        self._warned.discard("vcam")
+        self.stats.warnings = [w for w in self.stats.warnings if not w.startswith("No virtual camera")]
         if not o.enabled:
             return
         W, H = self.settings.output_size()
@@ -229,6 +259,42 @@ class Engine:
             self.bg_source = open_media(path) if path else None
             self._bg_path = path
             self.bg_layer.invalidate()
+
+    def _run_calibration(self) -> None:
+        from .calibrate import apply_choice, run_calibration
+        progress, done = self._calib or (None, None)
+        self._calib = None
+        frame = None
+        if self.cap is not None:
+            frame, _ = self.cap.read(0, timeout=0.2)
+        if self.seg is not None:
+            self.seg.close()
+            self.seg = None
+        self.stats.status = "calibrating"
+        target = max(15, self.settings.output.fps)
+        results, best = run_calibration(target, frame, progress)
+        if best is not None:
+            apply_choice(self.settings.seg, best, target)
+            log.info("Calibration picked: %s (%.1f ms)", best.label, best.ms)
+        self._open_segmenter()
+        if done:
+            try:
+                done(results, best)
+            except Exception:  # noqa: BLE001
+                log.exception("calibration callback failed")
+
+    def _publish(self, bgr, alpha=None, fg=None) -> None:
+        with self._latest_lock:
+            self._latest_bgr, self._latest_alpha, self._latest_fg = bgr, alpha, fg
+            self._frame_count += 1
+
+    def _idle_frame(self, text: str) -> None:
+        """Camera is off: keep the virtual camera fed with the splash."""
+        img = self.splash.get(self.settings.output_size(), self.settings.pause.splash_path, text)
+        if self.out is not None:
+            self.out.send(img)
+        self._publish(img)
+        time.sleep(0.2)
 
     # -------------------------------------------------------------- process
     def _fit_to_output(self, frame: np.ndarray, alpha: np.ndarray | None, size: tuple[int, int]):
@@ -307,16 +373,25 @@ class Engine:
                 req = self._take_requests()
                 if "segmenter" in req:
                     self._open_segmenter()
-                if "camera" in req:
-                    if not self._open_camera():
-                        time.sleep(1.0)
-                        self.request("camera")
-                        continue
                 if "output" in req:
                     self._open_output()
+                if "calibrate" in req:
+                    self._run_calibration()
+                if self.sleeping:
+                    if self.cap is not None:
+                        self._close_camera()
+                    self.stats.status = "sleeping"
+                    self._idle_frame("Camera sleeping")
+                    continue
+                if "camera" in req:
+                    if not self._open_camera():
+                        self._idle_frame("Camera unavailable")
+                        time.sleep(0.8)
+                        self.request("camera")
+                        continue
                 self._sync_background_source()
                 if self.cap is None:
-                    time.sleep(0.05)
+                    self._idle_frame("Camera off")
                     continue
                 if getattr(self.cap, "failed", False):
                     self._error("Camera disconnected; retrying...")
@@ -342,9 +417,7 @@ class Engine:
                 if self.out is not None:
                     self.out.send(bgr, rgba)
                     self._timer.lap("vcam send")
-                with self._latest_lock:
-                    self._latest_bgr, self._latest_alpha, self._latest_fg = bgr, alpha, fg
-                    self._frame_count += 1
+                self._publish(bgr, alpha, fg)
 
                 st = self.stats
                 ms = (time.perf_counter() - t_frame) * 1000.0
