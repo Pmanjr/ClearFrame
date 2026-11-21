@@ -9,3 +9,17 @@ dist/
 settings.local.json
 .env
 snapshots/
+
+# never commit user data, keys or captures
+settings.json
+*.log
+.env*
+*.key
+*.pem
+backgrounds/
+*.png
+*.jpg
+*.jpeg
+*.mp4
+*.webm
+*.gif
