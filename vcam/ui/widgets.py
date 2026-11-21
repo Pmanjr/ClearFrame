@@ -16,7 +16,7 @@ STYLE = f"""
 QWidget {{ background: #16191d; color: #e6e8eb; }}
 QToolTip {{ background: #2a2f36; color: #e6e8eb; border: 1px solid #3a4048; }}
 QTabWidget::pane {{ border: 0; }}
-QTabBar::tab {{ background: transparent; padding: 8px 12px; color: #9aa3ad; border-bottom: 2px solid transparent; }}
+QTabBar::tab {{ background: transparent; padding: 8px 9px; color: #9aa3ad; border-bottom: 2px solid transparent; }}
 QTabBar::tab:selected {{ color: #ffffff; border-bottom: 2px solid {ACCENT}; }}
 QTabBar::tab:hover {{ color: #ffffff; }}
 QPushButton {{ background: #262b32; border: 1px solid #343a42; border-radius: 6px; padding: 6px 12px; }}

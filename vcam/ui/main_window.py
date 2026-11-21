@@ -29,7 +29,7 @@ class MainWindow(QMainWindow):
         self.engine = engine
         self.setWindowTitle("vcam-clone")
         self.setWindowIcon(app_icon())
-        self.resize(1360, 760)
+        self.resize(1420, 780)
         self._quitting = False
         self._shown_frame = -1
         self._hidden_since: float | None = None
@@ -67,7 +67,7 @@ class MainWindow(QMainWindow):
 
         # ---- right: tabs
         self.tabs = QTabWidget()
-        self.tabs.setMinimumWidth(430)
+        self.tabs.setMinimumWidth(480)
         self.bg_tab = BackgroundTab(self)
         self.cam_tab = CameraTab(self)
         self.out_tab = OutputTab(self)
@@ -203,6 +203,8 @@ class MainWindow(QMainWindow):
     def quit(self) -> None:
         self._quitting = True
         self._save()
+        if hasattr(self, "hotkeys"):
+            self.hotkeys.stop()
         self.tray.hide()
         QApplication.instance().quit()
 
@@ -306,7 +308,7 @@ class MainWindow(QMainWindow):
             self.stats.setText(st.status.capitalize() + "...")
         else:
             self.stats.setText(st.status)
-        warns = [w.split(" (obs:")[0] for w in st.warnings]
+        warns = [w.split(" (obs:")[0] for w in st.warnings] + list(st.notes.values())
         want = self.settings.camera.fps
         if st.status == "running" and cap.measured_fps and cap.measured_fps < want * 0.8:
             warns.append(f"Camera delivers only {cap.measured_fps:.0f} FPS (requested {want}). "
@@ -319,6 +321,10 @@ class MainWindow(QMainWindow):
         self.cam_tab.set_negotiated(f"Negotiated: {cap.summary()}" if cap.width else "")
         self.out_tab.set_status(f"Active: {st.output}" if st.output else "Virtual camera is off.")
         self.act_sleep.setChecked(self.engine.sleeping)
+        if hasattr(self, "pause_btn"):          # engine may fall back (loop -> freeze)
+            self.pause_btn.setChecked(st.pause == "freeze")
+            self.loop_btn.setChecked(st.pause == "loop")
+            self.act_pause.setChecked(st.pause != "live")
 
     def _power_tick(self) -> None:
         """Release the webcam when hidden in the tray and the output is idle,

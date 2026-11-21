@@ -317,7 +317,7 @@ class SettingsTab(QWidget):
         f.check("Mirror preview (output is never mirrored)", s, "mirror_preview")
 
         f.section("Power saving")
-        f.check("Release the webcam when hidden in the tray and the output is off", s.power, "release_when_tray")
+        f.check("Release webcam when in the tray and output is off", s.power, "release_when_tray")
         f.slider("Sleep timer", s.power, "sleep_minutes", 0, 120, suffix=" min",
                  tooltip="Release the webcam after this long in the tray, even while the virtual "
                          "camera is on (it shows the splash image). 0 = never.")

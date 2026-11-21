@@ -3,6 +3,12 @@
 Runs on its own thread. The UI/CLI mutates `engine.settings` directly (plain
 attribute writes) and calls `engine.request(...)` for changes that need a
 device or model to be rebuilt.
+
+Per-frame order:
+  camera frame -> pause (freeze / loop) -> matting on the raw frame
+  -> auto-framing tracker -> look (camera controls, lighting, LUT)
+  -> crop + fit to output size -> background composite
+  -> overlays + name tag -> virtual camera / preview
 """
 from __future__ import annotations
 
@@ -16,10 +22,15 @@ import cv2
 import numpy as np
 
 from . import compositor as comp
+from . import pause as pause_mod
+from .autoframe import AutoFramer
 from .capture import FileCapture, Negotiated, ThreadedCapture
 from .devices import resolve_camera
+from .lighting import LightingEnhancer
 from .media import MediaSource, open_media
 from .output import VirtualCamError, VirtualCamOutput
+from .overlays import NameTagRenderer, OverlayRenderer, anchor_pos
+from .pause import PauseController
 from .segmentation import ModelMissing, Segmenter, create_segmenter
 from .settings import Settings, parse_color, pictures_dir
 from .splash import Splash
@@ -40,7 +51,9 @@ class Stats:
     capture: Negotiated = field(default_factory=Negotiated)
     output: str = ""
     status: str = "starting"
-    warnings: list = field(default_factory=list)
+    pause: str = pause_mod.LIVE
+    warnings: list = field(default_factory=list)   # sticky (capture / driver)
+    notes: dict = field(default_factory=dict)      # live (framing, upscale...)
 
 
 class _Timer:
@@ -73,6 +86,14 @@ class Engine:
         self.out: VirtualCamOutput | None = None
         self.bg_source: MediaSource | None = None
         self.bg_layer = comp.BackgroundLayer()
+        self.overlays = OverlayRenderer()
+        self.nametag = NameTagRenderer()
+        self.framer = AutoFramer()
+        self.lighting = LightingEnhancer()
+        self.pause = PauseController()
+        self.splash = Splash()
+        self._lut = None              # (path, Lut3D)
+        self._screen = None           # presenter-mode screen grabber
         self._bg_path = None
         self._requests: set[str] = {"camera", "segmenter", "output"}
         self._req_lock = threading.Lock()
@@ -81,16 +102,16 @@ class Engine:
         self._latest_lock = threading.Lock()
         self._latest_bgr: np.ndarray | None = None
         self._latest_alpha: np.ndarray | None = None
+        self._latest_fg: np.ndarray | None = None
         self._frame_count = 0
         self._alpha: np.ndarray | None = None
         self._timer = _Timer()
         self._warned: set[str] = set()
-        self.on_error = None          # callback(str)
-        self.sleeping = False         # camera released, splash on the output
-        self.splash = Splash()
-        self._latest_fg: np.ndarray | None = None
         self._calib = None            # (progress_cb, done_cb) when requested
+        self._pause_req: str | None = None
         self._last_id = 0
+        self.sleeping = False         # camera released, splash on the output
+        self.on_error = None          # callback(str)
 
     # ------------------------------------------------------------------ API
     def request(self, *what: str) -> None:
@@ -111,6 +132,10 @@ class Engine:
             self._thread.join(timeout=5.0)
             self._thread = None
 
+    @property
+    def alive(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
     def latest(self):
         """(composited BGR, alpha or None, foreground BGR or None, frame counter)."""
         with self._latest_lock:
@@ -124,6 +149,13 @@ class Engine:
         log.info("Camera %s.", "sleeping (released)" if sleeping else "waking")
         if not sleeping:
             self.request("camera")
+
+    def set_pause(self, mode: str) -> None:
+        """'live', 'freeze' (Pause Camera) or 'loop' (Pause Loop)."""
+        self._pause_req = mode
+
+    def toggle_pause(self, mode: str = pause_mod.FREEZE) -> None:
+        self.set_pause(pause_mod.LIVE if self.stats.pause != pause_mod.LIVE else mode)
 
     def calibrate(self, progress=None, done=None) -> None:
         """Benchmark models/providers on the engine thread, apply the winner.
@@ -149,7 +181,8 @@ class Engine:
             path = pictures_dir() / time.strftime("vcam-%Y%m%d-%H%M%S.png")
         path = Path(path)
         img = bgr
-        if alpha is not None and fg is not None and self.settings.background.mode == "remove":
+        if alpha is not None and fg is not None and self.settings.background.mode == "remove" \
+                and alpha.shape[:2] == fg.shape[:2]:
             img = cv2.cvtColor(fg, cv2.COLOR_BGR2BGRA)
             img[..., 3] = alpha
         img = img.copy()
@@ -169,6 +202,16 @@ class Engine:
             self._warned.add(key)
             log.warning(msg)
             self.stats.warnings.append(msg)
+
+    def _note(self, key: str, msg: str | None) -> None:
+        """Live UI note; logged once each time it appears."""
+        notes = self.stats.notes
+        if msg is None:
+            notes.pop(key, None)
+        else:
+            if key not in notes:
+                log.warning(msg)
+            notes[key] = msg
 
     def _error(self, msg: str) -> None:
         log.error(msg)
@@ -204,12 +247,14 @@ class Engine:
             return False
         self.stats.camera = self.cap.name
         self.stats.capture = neg
-        self.stats.warnings = [w for w in self.stats.warnings if not w.startswith(("Capture", "Source"))]             + [f"Capture is not what was requested: {w}" for w in neg.warnings]
-        self._warned.discard("upscale")
+        self.stats.warnings = [w for w in self.stats.warnings if not w.startswith("Capture")] \
+            + [f"Capture is not what was requested: {w}" for w in neg.warnings]
         for name, value in (cs.uvc or {}).items():
             self.cap.set_prop(name, value)
         if self.seg:
             self.seg.reset()
+        self.framer.reset()
+        self.lighting.reset()
         self._alpha = None
         self._last_id = 0
         return True
@@ -296,34 +341,110 @@ class Engine:
         self._publish(img)
         time.sleep(0.2)
 
-    # -------------------------------------------------------------- process
-    def _fit_to_output(self, frame: np.ndarray, alpha: np.ndarray | None, size: tuple[int, int]):
-        """Centre-crop to the output aspect, then scale to output size.
-        Downscale only; an upscale means the source is below output res."""
+    # ------------------------------------------------------------ look
+    def _look(self, frame: np.ndarray, new_frame: bool) -> np.ndarray:
+        """Colour pipeline on the full-resolution frame (never resampled)."""
+        s = self.settings
+        cs = s.camera
+        fg = comp.adjust(frame, cs.brightness, cs.contrast, cs.saturation, cs.hue, cs.gamma)
+        if s.lighting.enabled:
+            fg = self.lighting.apply(fg, s.lighting.strength, update=new_frame)
+        ex = s.extras
+        if ex.lut_path:
+            if self._lut is None or self._lut[0] != ex.lut_path:
+                from .lut import Lut3D
+                try:
+                    self._lut = (ex.lut_path, Lut3D(ex.lut_path))
+                except Exception as e:  # noqa: BLE001
+                    log.warning("Could not load LUT %s: %s", ex.lut_path, e)
+                    self._lut = (ex.lut_path, None)
+            if self._lut[1] is not None:
+                fg = self._lut[1].apply(fg, ex.lut_strength)
+        return fg
+
+    # ------------------------------------------------------------ framing
+    def _fit_to_output(self, frame: np.ndarray, alpha: np.ndarray | None, size: tuple[int, int],
+                       track: tuple[float, float, float] | None = None):
+        """Crop to the output aspect (centred, or the auto-framing window) and
+        scale to the output size. The source is only ever scaled *down*; if a
+        crop is smaller than the output the user is warned (it must upscale)."""
         W, H = size
         h, w = frame.shape[:2]
-        if w * H != h * W:                       # aspect mismatch -> centre crop
-            if w * H > h * W:
-                cw = int(round(h * W / H)) & ~1
-                x0 = (w - cw) // 2
-                frame = frame[:, x0:x0 + cw]
-                alpha = alpha[:, x0:x0 + cw] if alpha is not None else None
-            else:
-                ch = int(round(w * H / W)) & ~1
-                y0 = (h - ch) // 2
-                frame = frame[y0:y0 + ch]
-                alpha = alpha[y0:y0 + ch] if alpha is not None else None
-            h, w = frame.shape[:2]
-        if (w, h) != (W, H):
-            if w < W:
-                self._warn_once("upscale", f"Source {w}x{h} is below output {W}x{H}: upscaling. "
-                                           "Lower the output resolution for a sharper picture.")
-            interp = cv2.INTER_AREA if w > W else cv2.INTER_CUBIC
-            frame = cv2.resize(frame, (W, H), interpolation=interp)
+        if w * H > h * W:
+            bw, bh = h * W / H, float(h)
+        else:
+            bw, bh = float(w), w * H / W
+        cx, cy, z = track if track is not None else (0.5, 0.5, 1.0)
+        if track is not None and self.settings.autoframe.limit_native:
+            z = min(z, max(1.0, bw / W))
+        if z < 1.01:
+            z = 1.0                       # settle exactly on the uncropped frame
+        cw, ch = bw / z, bh / z
+        x0 = float(np.clip(cx * w - cw / 2, 0, w - cw))
+        y0 = float(np.clip(cy * h - ch / 2, 0, h - ch))
+        scale = W / cw
+
+        if track is not None and cw < W * 0.97:
+            self._note("framing", f"Auto-framing zoom {z:.1f}x leaves {int(cw)}x{int(ch)} real pixels, "
+                                  f"below the {W}x{H} output (upscaling). Lower the zoom, pick a "
+                                  "smaller output resolution, or enable 'Never upscale'.")
+        else:
+            self._note("framing", None)
+        if bw < W - 1:
+            self._note("upscale", f"Camera gives {w}x{h}, below the {W}x{H} output (upscaling). "
+                                  "Lower the output resolution for a sharper picture.")
+        else:
+            self._note("upscale", None)
+
+        aligned = abs(x0 - round(x0)) < 0.02 and abs(y0 - round(y0)) < 0.02
+        if abs(scale - 1.0) < 1e-4 and aligned:
+            xi, yi = int(round(x0)), int(round(y0))
+            if (xi, yi, W, H) == (0, 0, w, h):
+                return frame, alpha
+            frame = frame[yi:yi + H, xi:xi + W]
+            alpha = alpha[yi:yi + H, xi:xi + W] if alpha is not None else None
+            return np.ascontiguousarray(frame), (np.ascontiguousarray(alpha) if alpha is not None else None)
+        if track is not None and scale >= 0.75:
+            # sub-pixel window so slow pans are smooth
+            M = np.float32([[scale, 0, -x0 * scale], [0, scale, -y0 * scale]])
+            interp = cv2.INTER_CUBIC if scale > 1.0 else cv2.INTER_LINEAR
+            frame = cv2.warpAffine(frame, M, (W, H), flags=interp, borderMode=cv2.BORDER_REPLICATE)
             if alpha is not None:
-                alpha = cv2.resize(alpha, (W, H), interpolation=cv2.INTER_AREA if w > W else cv2.INTER_LINEAR)
+                alpha = cv2.warpAffine(alpha, M, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            return frame, alpha
+        xi, yi = int(round(x0)), int(round(y0))
+        cwi, chi = min(int(round(cw)), w - xi), min(int(round(ch)), h - yi)
+        interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
+        frame = cv2.resize(frame[yi:yi + chi, xi:xi + cwi], (W, H), interpolation=interp)
+        if alpha is not None:
+            alpha = cv2.resize(alpha[yi:yi + chi, xi:xi + cwi], (W, H),
+                               interpolation=cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR)
         return frame, alpha
 
+    # ------------------------------------------------------------ presenter
+    def _presenter(self, fg: np.ndarray, alpha: np.ndarray, size: tuple[int, int]) -> np.ndarray:
+        """Screen capture behind a scaled-down matted person."""
+        ex = self.settings.extras
+        if self._screen is None:
+            from .presenter import ScreenGrabber
+            self._screen = ScreenGrabber()
+        self._screen.start(ex.presenter_monitor)
+        W, H = size
+        shot = self._screen.frame()
+        if shot is None:
+            out = np.full((H, W, 3), 16, np.uint8)
+        else:
+            out = comp.place_media(shot, size, "fit")
+            out = out.copy() if out is shot else np.ascontiguousarray(out)
+        k = float(np.clip(ex.presenter_scale, 0.1, 1.0))
+        pw, ph = max(2, int(W * k)), max(2, int(H * k))
+        person = cv2.resize(fg, (pw, ph), interpolation=cv2.INTER_AREA)
+        pa = cv2.resize(alpha, (pw, ph), interpolation=cv2.INTER_AREA)
+        x, y = anchor_pos(ex.presenter_anchor, W, H, pw, ph, 0.0, 0.0)
+        comp.overlay_bgra(out, np.dstack((person, pa)), x, y)
+        return out
+
+    # -------------------------------------------------------------- process
     def process(self, frame: np.ndarray, new_frame: bool = True):
         """One frame through the pipeline. Returns (bgr, rgba_or_None, alpha_or_None, fg)."""
         s = self.settings
@@ -332,23 +453,32 @@ class Engine:
         t.start()
         mode = bs.mode
         size = s.output_size()
+        presenter = s.extras.presenter
 
         alpha = None
-        if mode != "original" and self.seg is not None:
+        if (mode != "original" or presenter) and self.seg is not None:
             if new_frame or self._alpha is None or self._alpha.shape[:2] != frame.shape[:2]:
                 self.seg.ema_strength, self.seg.edge_tighten = s.seg.ema, s.seg.edge_tighten
                 self._alpha = self.seg.alpha(frame)
             alpha = self._alpha
         t.lap("segment")
 
-        cs = s.camera
-        fg = comp.adjust(frame, cs.brightness, cs.contrast, cs.saturation, cs.hue, cs.gamma)
-        fg, alpha = self._fit_to_output(fg, alpha, size)
-        t.lap("adjust+fit")
+        track = None
+        if s.autoframe.enabled and not presenter:
+            track = self.framer.update(frame, s.autoframe, new_frame)
+            t.lap("autoframe")
+
+        fg = self._look(frame, new_frame)
+        t.lap("look")
+        fg, alpha = self._fit_to_output(fg, alpha, size, track)
+        t.lap("fit")
 
         rgba = None
+        want_rgba = self.out is not None and self.out.rgba and mode == "remove" and not presenter
         if alpha is None:
             bgr = fg
+        elif presenter:
+            bgr = self._presenter(fg, alpha, size)
         elif mode == "blur":
             bgr = comp.blend(fg, comp.blur_background(fg, alpha, bs.blur_strength, bs.bokeh), alpha)
         elif mode == "replace":
@@ -357,9 +487,22 @@ class Engine:
             bgr = comp.blend_color(fg, parse_color(bs.color), alpha)
         else:  # remove
             bgr = comp.blend_color(fg, parse_color(bs.remove_fallback_color), alpha)
-            if self.out is not None and self.out.rgba:
-                rgba = comp.to_rgba(fg, alpha)
         t.lap("composite")
+
+        layers = [l for l in s.overlays if l.enabled and l.path]
+        if layers or s.nametag.enabled:
+            if bgr is frame or bgr is fg or bgr.base is not None:
+                bgr = bgr.copy()              # never draw on the camera's buffer
+            self.overlays.draw(bgr, layers)
+            self.nametag.draw(bgr, s.nametag)
+            if want_rgba:
+                src, a2 = fg.copy(), alpha.copy()
+                self.overlays.draw(src, layers, a2)
+                self.nametag.draw(src, s.nametag, a2)
+                rgba = comp.to_rgba(src, a2)
+            t.lap("overlays")
+        if want_rgba and rgba is None:
+            rgba = comp.to_rgba(fg, alpha)
         return bgr, rgba, alpha, fg
 
     # ----------------------------------------------------------------- loop
@@ -377,6 +520,10 @@ class Engine:
                     self._open_output()
                 if "calibrate" in req:
                     self._run_calibration()
+                if self._pause_req is not None:
+                    self.stats.pause = self.pause.set_mode(self._pause_req)
+                    self._pause_req = None
+                    log.info("Pause mode: %s", self.stats.pause)
                 if self.sleeping:
                     if self.cap is not None:
                         self._close_camera()
@@ -390,6 +537,8 @@ class Engine:
                         self.request("camera")
                         continue
                 self._sync_background_source()
+                if self._screen is not None and not self.settings.extras.presenter:
+                    self._screen.stop()
                 if self.cap is None:
                     self._idle_frame("Camera off")
                     continue
@@ -413,7 +562,13 @@ class Engine:
                 self._last_id = fid
 
                 t_frame = time.perf_counter()
-                bgr, rgba, alpha, fg = self.process(frame, new_frame)
+                ps = self.settings.pause
+                frame, new_frame = self.pause.feed(frame, new_frame, ps.loop_seconds, ps.loop_buffer)
+                if self.pause.mode == pause_mod.FREEZE and ps.splash_on_pause:
+                    bgr = self.splash.get(self.settings.output_size(), ps.splash_path, "Camera paused")
+                    rgba = alpha = fg = None
+                else:
+                    bgr, rgba, alpha, fg = self.process(frame, new_frame)
                 if self.out is not None:
                     self.out.send(bgr, rgba)
                     self._timer.lap("vcam send")
@@ -446,4 +601,9 @@ class Engine:
             if self.bg_source is not None:
                 self.bg_source.close()
                 self.bg_source, self._bg_path = None, None
+            self.overlays.close()
+            self.framer.close()
+            self.pause.close()
+            if self._screen is not None:
+                self._screen.stop()
             log.info("Engine stopped.")

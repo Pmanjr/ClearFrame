@@ -140,6 +140,7 @@ class AutoFrameSettings:
     enabled: bool = False
     zoom: float = 1.4              # 1..3 (how tight around the face)
     speed: float = 0.5             # 0..1
+    limit_native: bool = False     # cap zoom so the crop never drops below output pixels
 
 
 @dataclass
@@ -151,6 +152,7 @@ class LightingSettings:
 @dataclass
 class PauseSettings:
     loop_seconds: float = 4.0
+    loop_buffer: bool = True       # keep the last N seconds ready for Pause Loop
     splash_path: str = ""          # custom idle image ("" = built-in)
     splash_on_pause: bool = False  # show splash instead of the frozen frame
 
@@ -164,12 +166,12 @@ class PowerSettings:
 @dataclass
 class HotkeySettings:
     enabled: bool = True
-    toggle_blur: str = "<ctrl>+<alt>+b"
-    toggle_remove: str = "<ctrl>+<alt>+r"
-    toggle_original: str = "<ctrl>+<alt>+o"
-    cycle_background: str = "<ctrl>+<alt>+n"
-    pause: str = "<ctrl>+<alt>+p"
-    snapshot: str = "<ctrl>+<alt>+s"
+    toggle_blur: str = "Ctrl+Alt+B"
+    toggle_remove: str = "Ctrl+Alt+R"
+    toggle_original: str = "Ctrl+Alt+O"
+    cycle_background: str = "Ctrl+Alt+N"
+    pause: str = "Ctrl+Alt+P"
+    snapshot: str = "Ctrl+Alt+S"
 
 
 @dataclass

@@ -70,3 +70,6 @@ Live preview, settings tabs (Background, Camera, Output, Settings) and a
 system tray icon. Closing or minimising the window hides it in the tray; the
 virtual camera keeps running. Settings are saved to
 `%APPDATA%\vcam-clone\settings.json`.
+
+Phase 3 adds the Overlays tab (logo layers, name tag), the Enhance tab
+(auto-framing, lighting, pause loop) and global hotkeys (Settings tab).

@@ -58,6 +58,18 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--snapshot", default=None, help="save a PNG of the composited frame on exit")
     g.add_argument("--seconds", type=float, default=0, help="stop after N seconds (0 = run until Ctrl+C)")
 
+    g = p.add_argument_group("extras")
+    g.add_argument("--overlay", action="append", default=[], help="logo/watermark file (repeatable)")
+    g.add_argument("--overlay-anchor", default="top-right")
+    g.add_argument("--name", default="", help="name tag: name")
+    g.add_argument("--title", default="", help="name tag: title")
+    g.add_argument("--autoframe", type=float, default=0, metavar="ZOOM", help="auto-framing zoom (1-3)")
+    g.add_argument("--enhance", type=float, default=0, metavar="STRENGTH", help="enhance lighting 0-1")
+    g.add_argument("--lut", default="", help=".cube 3D LUT")
+    g.add_argument("--presenter", action="store_true", help="screen capture behind the matted person")
+    g.add_argument("--pause-loop-after", type=float, default=0, metavar="SEC",
+                   help="switch to Pause Loop after SEC seconds (demo/testing)")
+
     p.add_argument("--benchmark", action="store_true", help="benchmark every model/provider and exit")
     p.add_argument("-v", "--verbose", action="store_true")
     return p
@@ -80,6 +92,15 @@ def settings_from_args(a: argparse.Namespace) -> Settings:
     g.rvm_precision, g.rvm_refiner, g.downsample_ratio, g.ema = a.precision, a.refiner, a.downsample, a.ema
     o = s.output
     o.resolution, o.fps, o.backend, o.rgba, o.enabled = a.out_res, a.out_fps, a.backend, a.rgba, not a.no_vcam
+    from .settings import OverlaySettings
+    s.overlays = [OverlaySettings(path=p, anchor=a.overlay_anchor) for p in a.overlay]
+    if a.name or a.title:
+        s.nametag.enabled, s.nametag.name, s.nametag.title = True, a.name, a.title
+    if a.autoframe:
+        s.autoframe.enabled, s.autoframe.zoom = True, a.autoframe
+    if a.enhance:
+        s.lighting.enabled, s.lighting.strength = True, a.enhance
+    s.extras.lut_path, s.extras.presenter = a.lut, a.presenter
     return s
 
 
@@ -129,9 +150,12 @@ def main(argv: list[str] | None = None) -> int:
                 log.info("%.1f FPS | frame %.1f ms | inference %.1f ms (%s/%s) | %s | out: %s",
                          st.fps, st.frame_ms, st.infer_ms, st.segmenter, st.provider.upper(),
                          stages, st.output or "none")
+            if a.pause_loop_after and now - t0 >= a.pause_loop_after:
+                eng.set_pause("loop")
+                a.pause_loop_after = 0
             if a.seconds and now - t0 >= a.seconds:
                 break
-            if not eng._thread.is_alive():
+            if not eng.alive:
                 return 1
     except KeyboardInterrupt:
         pass
