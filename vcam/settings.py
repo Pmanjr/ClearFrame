@@ -203,6 +203,8 @@ class Settings:
     unsplash_api_key: str = ""
     mirror_preview: bool = True
     start_minimized: bool = False
+    close_to_tray: bool = False     # X button: False = quit, True = keep running in the tray
+    minimize_to_tray: bool = True   # minimise button hides the window in the tray
 
     # ---- helpers -------------------------------------------------------
     def output_size(self) -> tuple[int, int]:

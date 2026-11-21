@@ -4,9 +4,13 @@ from __future__ import annotations
 import argparse
 import logging
 import logging.handlers
+import os
 import sys
 
 from ..settings import Settings, app_dir
+
+
+INSTANCE_KEY = "vcam-clone-single-instance"
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -47,10 +51,31 @@ def main(argv: list[str] | None = None) -> int:
     app.setStyleSheet(STYLE)
     app.setWindowIcon(app_icon())
 
+    # ---- single instance: a second launch just brings the first one forward
+    from PySide6.QtNetwork import QLocalServer, QLocalSocket
+    sock = QLocalSocket()
+    sock.connectToServer(INSTANCE_KEY)
+    if sock.waitForConnected(400):
+        sock.write(b"show")
+        sock.waitForBytesWritten(400)
+        sock.disconnectFromServer()
+        logging.getLogger("vcam.ui").info("Already running; activated the existing window.")
+        return 0
+    QLocalServer.removeServer(INSTANCE_KEY)          # stale name from a crashed run
+    server = QLocalServer()
+    server.listen(INSTANCE_KEY)
+
     settings = Settings.load()
     engine = Engine(settings, input_file=a.input)
     win = MainWindow(settings, engine)
     engine.start()
+
+    def _activated() -> None:
+        conn = server.nextPendingConnection()
+        if conn is not None:
+            conn.close()
+        win.show_window()
+    server.newConnection.connect(_activated)
 
     if a.minimized or settings.start_minimized:
         win.hide_to_tray()
@@ -67,9 +92,31 @@ def main(argv: list[str] | None = None) -> int:
         QTimer.singleShot(6000, grab)
 
     code = app.exec()
-    engine.stop()
+    ulog = logging.getLogger("vcam.ui")
+    ulog.info("Event loop ended; stopping engine.")
+    server.close()
+    engine.stop()                 # releases the webcam and the virtual camera
     settings.save()
-    return code
+    ulog.info("Exit.")
+    logging.shutdown()
+    _terminate(code)
+
+
+def _terminate(code: int) -> None:
+    """End the process right now. Everything that matters is already done
+    (settings saved, webcam released, virtual camera closed). A normal exit
+    then spends several seconds unloading GPU / Qt / DirectShow DLLs and can
+    be held up by helper threads (hotkey hook, thread pools) - during which
+    the app looks closed but is still running."""
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        k32.GetCurrentProcess.restype = ctypes.c_void_p
+        k32.TerminateProcess.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+        k32.TerminateProcess(k32.GetCurrentProcess(), int(code) & 0xFFFFFFFF)
+    except Exception:  # noqa: BLE001
+        pass
+    os._exit(code)
 
 
 if __name__ == "__main__":

@@ -194,23 +194,33 @@ class MainWindow(QMainWindow):
                                   QSystemTrayIcon.Information, 4000)
 
     def closeEvent(self, e: QCloseEvent) -> None:
-        if self._quitting or not QSystemTrayIcon.isSystemTrayAvailable():
-            e.accept()
+        """X quits the app (camera and virtual camera are released) unless the
+        user chose to keep it running in the tray."""
+        if not self._quitting and self.settings.close_to_tray and QSystemTrayIcon.isSystemTrayAvailable():
+            e.ignore()
+            self.hide_to_tray()
             return
-        e.ignore()
-        self.hide_to_tray()
+        e.accept()
+        if not self._quitting:
+            self.quit()
 
     def changeEvent(self, e) -> None:
         super().changeEvent(e)
-        if e.type() == e.Type.WindowStateChange and self.isMinimized() and not self._quitting:
+        if e.type() == e.Type.WindowStateChange and self.isMinimized() and not self._quitting                 and self.settings.minimize_to_tray and QSystemTrayIcon.isSystemTrayAvailable():
             QTimer.singleShot(0, self.hide_to_tray)
 
     def quit(self) -> None:
+        if self._quitting:
+            return
         self._quitting = True
+        log.info("Quit requested.")
+        self._frame_timer.stop()
+        self._stats_timer.stop()
         self._save()
         if hasattr(self, "hotkeys"):
             self.hotkeys.stop()
         self.tray.hide()
+        self.hide()
         QApplication.instance().quit()
 
     # ------------------------------------------------------------ settings

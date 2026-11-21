@@ -317,7 +317,9 @@ class Engine:
             self.seg = None
         self.stats.status = "calibrating"
         target = max(15, self.settings.output.fps)
-        results, best = run_calibration(target, frame, progress)
+        results, best = run_calibration(target, frame, progress, cancel=lambda: not self._running)
+        if not self._running:
+            return
         if best is not None:
             apply_choice(self.settings.seg, best, target)
             log.info("Calibration picked: %s (%.1f ms)", best.label, best.ms)

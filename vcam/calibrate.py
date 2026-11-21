@@ -58,7 +58,7 @@ def _test_frame(w=1920, h=1080) -> np.ndarray:
 
 
 def bench(c: Candidate, frame: np.ndarray, frames: int = 30, warmup: int = 8,
-          downsample_ratio: float = 0.25) -> Candidate:
+          downsample_ratio: float = 0.25, cancel=None) -> Candidate:
     seg = None
     try:
         if c.mode == "performance":
@@ -75,7 +75,7 @@ def bench(c: Candidate, frame: np.ndarray, frames: int = 30, warmup: int = 8,
             seg.alpha(frame)
             total.append(seg.total_ms)
             infer.append(seg.infer_ms)
-            if time.perf_counter() > t_end:
+            if time.perf_counter() > t_end or (cancel and cancel()):
                 break
         c.ms, c.infer_ms = float(np.median(total)), float(np.median(infer))
     except ModelMissing as e:
@@ -102,19 +102,22 @@ def choose(results: list[Candidate], target_fps: int, overhead_ms: float = 6.0) 
 
 
 def run_calibration(target_fps: int = 30, frame: np.ndarray | None = None,
-                    progress=None) -> tuple[list[Candidate], Candidate | None]:
-    """progress(i, n, label) is called before each candidate."""
+                    progress=None, cancel=None) -> tuple[list[Candidate], Candidate | None]:
+    """progress(i, n, label) is called before each candidate. cancel() -> True
+    aborts (app is quitting); nothing is selected in that case."""
     frame = _test_frame() if frame is None else frame
     cands = candidates()
     results = []
     dml_dead: set[int] = set()
     for i, c in enumerate(cands):
+        if cancel and cancel():
+            return results, None
         if progress:
             progress(i, len(cands), c.label)
         if c.provider == "dml" and c.dml_device in dml_dead:
             c.error = "adapter not available"
         else:
-            bench(c, frame)
+            bench(c, frame, cancel=cancel)
             if c.error and c.provider == "dml" and c.refiner == "rvm":
                 # first candidate of this adapter failed -> adapter likely absent
                 if "device" in c.error.lower() or "adapter" in c.error.lower() or c.dml_device > 0:

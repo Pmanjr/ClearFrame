@@ -79,9 +79,12 @@ the last few seconds forwards then backwards so there is no seam),
 **Snapshot** (PNG in `Pictures\vcam-clone`) and **Mirror preview** (preview
 only; the output is never mirrored).
 
-Closing or minimising the window hides it in the system tray; the virtual
-camera keeps running. The tray menu has the modes, next background, pause,
-snapshot, sleep camera and Quit.
+**Closing the window (X) quits the app** and releases the webcam and the
+virtual camera. Minimising hides it in the system tray, where the virtual
+camera keeps running; the tray menu has the modes, next background, pause,
+snapshot, sleep camera and Quit. Both behaviours can be changed under
+Settings > Window (for example, make X keep the app in the tray). Only one
+copy runs at a time: starting it again brings the running window forward.
 
 ### Background library
 

@@ -20,7 +20,7 @@ a = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
-    excludes=["tkinter", "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtNetwork", "PySide6.QtSql",
+    excludes=["tkinter", "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtSql",
               "PySide6.QtOpenGL", "PySide6.QtPdf", "IPython", "pytest", "sounddevice"],
     noarchive=False,
 )

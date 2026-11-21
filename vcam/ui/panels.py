@@ -323,6 +323,12 @@ class SettingsTab(QWidget):
                          "camera is on (it shows the splash image). 0 = never.")
         f.check("Start minimised to the tray", s, "start_minimized")
 
+        f.section("Window")
+        f.check("Minimise button hides the window in the tray", s, "minimize_to_tray")
+        f.check("Close button (X) keeps the app running in the tray", s, "close_to_tray",
+                tooltip="Off: X quits the app and releases the webcam and the virtual camera.")
+        f.hint("With both off the app only lives in the taskbar. Quit is always in the tray menu.")
+
         f.section("Splash image")
         f.file("Custom image", s.pause, "splash_path", "Choose splash image",
                "Images (*.png *.jpg *.jpeg *.webp *.bmp)")
